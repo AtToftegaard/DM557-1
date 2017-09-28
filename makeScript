@@ -1,0 +1,11 @@
+#!/bin/bash
+printf  "\x1b[32m MAKE CLEAN \n \x1b[0m"
+make clean
+printf  "\x1b[32m MAKE \n \x1b[0m"
+make 
+printf  "\x1b[32m MAKE INSTALL \n \x1b[0m"
+make install
+printf  "\x1b[32m MAKE MYNETWORK \n \x1b[0m"
+make mynetwork
+printf  "\x1b[32m DONE! \n \x1b[0m"
+

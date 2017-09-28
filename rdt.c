@@ -37,9 +37,9 @@ mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
 
-int ack_timer_id;
+int ack_timer_id[4];
 int timer_ids[NR_BUFS];
-boolean no_nak = false; /* no nak has been sent yet */
+boolean nak_possible = false; /* no nak has been sent yet */
 
 static boolean between(seq_nr a, seq_nr b, seq_nr c)
 {
@@ -74,7 +74,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
     if (fk == NAK)
     {
-    	no_nak = false;        /* one nak per frame, please */
+    	nak_possible = false;        /* one nak per frame, please */
     }
     to_physical_layer(&s);        /* transmit the frame */
     if (fk == DATA)
@@ -272,7 +272,9 @@ void selective_repeat() {
     	arrived[i] = false;
     	timer_ids[i] = -1;
     }
-    ack_timer_id = -1;
+     for (i = 0; i < 4; i++) {
+    	ack_timer_id[i] = -1;
+    }
 
 
     events_we_handle = frame_arrival | timeout | network_layer_ready;
@@ -312,10 +314,10 @@ void selective_repeat() {
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
-					if ((r.seq != frame_expected) && no_nak) {
+					if ((r.seq != frame_expected) && nak_possible) {
 						send_frame(NAK, 0, frame_expected, out_buf);
 					} else {
-						start_ack_timer();
+						start_ack_timer(0);	/*TODO*/
 					}
 					if (between(frame_expected, r.seq, too_far) && (arrived[r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
@@ -324,11 +326,11 @@ void selective_repeat() {
 						while (arrived[frame_expected % NR_BUFS]) {
 							/* Pass frames and advance window. */
 							to_network_layer(&in_buf[frame_expected % NR_BUFS]);
-							no_nak = true;
+							nak_possible = true;
 							arrived[frame_expected % NR_BUFS] = false;
 							inc(frame_expected);        /* advance lower edge of receiver's window */
 							inc(too_far);        /* advance upper edge of receiver's window */
-							start_ack_timer();        /* to see if (a separate ack is needed */
+							start_ack_timer(0);        /* to see if (a separate ack is needed TODO */ 
 						}
 					}
 				}
@@ -348,13 +350,13 @@ void selective_repeat() {
 	        case timeout: /* Ack timeout or regular timeout*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id);
+	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[0]);
 	        	logLine(info, "Message from timer: '%s'\n", (char *) event.msg );
 
-	        	if( timer_id == ack_timer_id ) { // Ack timer timer out
+	        	if( timer_id == ack_timer_id[0] ) { // Ack timer timer out
 	        		logLine(debug, "This was an ack-timer timeout. Sending explicit ack.\n");
 	        		free(event.msg);
-	        		ack_timer_id = -1; // It is no longer running
+	        		ack_timer_id[0] = -1; // It is no longer running
 	        		send_frame(ACK,0,frame_expected, out_buf);        /* ack timer expired; send ack */
 	        	} else {
 	        		int timed_out_seq_nr = atoi( (char *) event.msg );
@@ -497,15 +499,15 @@ void stop_timer(seq_nr k) {
 }
 
 
-void start_ack_timer(void)
+void start_ack_timer(NeighbourID)
 {
-	if( ack_timer_id == -1 ) {
+	if( ack_timer_id[0] == -1 ) {
 		logLine(trace, "Starting ack-timer\n");
 		char *msg;
 		msg = (char *) malloc(100*sizeof(char));
 		strcpy(msg, "Ack-timer");
-		ack_timer_id = SetTimer( act_timer_timeout_millis, (void *)msg );
-		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id);
+		ack_timer_id[0] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
+		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id[0]);
 	}
 }
 
@@ -515,11 +517,11 @@ void stop_ack_timer(void)
 	char *msg;
 
 	logLine(trace, "stop_ack_timer\n");
-    if (StopTimer(ack_timer_id, (void *)&msg)) {
+    if (StopTimer(ack_timer_id[0], (void *)&msg)) {
 	    logLine(trace, "timer %d stoppet. msg: %s \n", ack_timer_id, msg);
         free(msg);
     }
-    ack_timer_id = -1;
+    ack_timer_id[0] = -1; /*TODO*/
 }
 
 
