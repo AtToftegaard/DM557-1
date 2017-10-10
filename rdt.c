@@ -38,7 +38,7 @@ mlock_t *write_lock;
 packet ugly_buffer; // TODO Make this a queue
 
 int ack_timer_id[4];
-int timer_ids[NR_BUFS];
+int timer_ids[NR_BUFS*4];
 boolean nak_possible = false; /* no nak has been sent yet */
 
 static boolean between(seq_nr a, seq_nr b, seq_nr c)
@@ -76,12 +76,12 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     {
     	nak_possible = false;        /* one nak per frame, please */
     }
-    to_physical_layer(&s);        /* transmit the frame */
+    to_physical_layer(&s, 0 /*reciever TODODODODODODODODOD*/);        /* transmit the frame <-- TODO*/
     if (fk == DATA)
     {
-    	start_timer(frame_nr);
+    	start_timer(frame_nr, 0);
     }
-    stop_ack_timer();        /* no need for separate ack frame */
+    stop_ack_timer(0);        /* no need for separate ack frame */
 }
 
 /* Fake network/upper layers for station 1
@@ -342,7 +342,7 @@ void selective_repeat() {
 				while (between(ack_expected, r.ack, next_frame_to_send)) {
 					logLine(debug, "Advancing window %d\n", ack_expected);
 					nbuffered = nbuffered - 1;        		/* handle piggybacked ack */
-					stop_timer(ack_expected % NR_BUFS);     /* frame arrived intact */
+					stop_timer(ack_expected % NR_BUFS, 0);     /* frame arrived intact */
 					inc(ack_expected);        				/* advance lower edge of sender's window */
 				}
 				break;
@@ -455,8 +455,9 @@ int from_physical_layer(frame *r) {
 }
 
 
-void to_physical_layer(frame *s)
+void to_physical_layer(frame *s, int reciever)
 {
+/*
 	int send_to;
 
 	if( ThisStation == 1) {
@@ -464,30 +465,30 @@ void to_physical_layer(frame *s)
 	} else {
 		send_to = 1;
 	}
-
+*/
 	print_frame(s, "sending");
-
-	ToSubnet(ThisStation, send_to, (char *) s, sizeof(frame));
+	s->sendTime = GetTime();
+	ToSubnet(ThisStation, reciever, (char *) s, sizeof(frame));
 }
 
 
-void start_timer(seq_nr k) {
+void start_timer(seq_nr k, int NeighbourID) {
 
 	char *msg;
 	msg = (char *) malloc(100*sizeof(char));
 	sprintf(msg, "%d", k); // Save seq_nr in message
 
-	timer_ids[k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
+	timer_ids[k % NR_BUFS * NeighbourID] = SetTimer( frame_timer_timeout_millis, (void *)msg );
 	logLine(trace, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[0], timer_ids[1], timer_ids[2], timer_ids[3], msg);
 
 }
 
 
-void stop_timer(seq_nr k) {
+void stop_timer(seq_nr k, int NeighbourID) {
 	int timer_id;
 	char *msg;
 
-	timer_id = timer_ids[k];
+	timer_id = timer_ids[k * NeighbourID];
 	logLine(trace, "stop_timer for seq_nr %d med id=%d\n", k, timer_id);
 
     if (StopTimer(timer_id, (void *)&msg)) {
@@ -512,7 +513,7 @@ void start_ack_timer(NeighbourID)
 }
 
 
-void stop_ack_timer(void)
+void stop_ack_timer(NeighbourID)
 {
 	char *msg;
 

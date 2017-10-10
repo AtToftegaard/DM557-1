@@ -50,19 +50,19 @@ void to_network_layer(packet *p);
 int from_physical_layer(frame *r);
 
 /* Pass the frame to the physical layer for transmission. */
-void to_physical_layer(frame *s);
+void to_physical_layer(frame *s, int reciever);
 
 /* Start the clock running and enable the timeout event. */
-void start_timer(seq_nr k);
+void start_timer(seq_nr k, int NeighbourID);
 
 /* Stop the clock and disable the timeout event. */
-void stop_timer(seq_nr k);
+void stop_timer(seq_nr k, int NeighbourID);
 
 /* Start an auxiliary timer and enable the ack_timeout event. */
 void start_ack_timer(int NeighbourID);
 
 /* Stop the auxiliary timer and disable the ack_timeout event. */
-void stop_ack_timer(void);
+void stop_ack_timer(int NeighbourID);
 
 /* Allow the network layer to cause a network_layer_ready event. */
 void enable_network_layer(void);
