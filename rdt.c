@@ -37,7 +37,7 @@ mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
 
-int ack_timer_id[4];
+int ack_timer_id[4] = {0,0,0,0};
 int timer_ids[NR_BUFS*4];
 boolean nak_possible = false; /* no nak has been sent yet */
 
@@ -465,9 +465,10 @@ void to_physical_layer(frame *s, int reciever)
 	} else {
 		send_to = 1;
 	}
-*/
+*/	
 	print_frame(s, "sending");
 	s->sendTime = GetTime();
+
 	ToSubnet(ThisStation, reciever, (char *) s, sizeof(frame));
 }
 
@@ -502,12 +503,12 @@ void stop_timer(seq_nr k, int NeighbourID) {
 
 void start_ack_timer(NeighbourID)
 {
-	if( ack_timer_id[0] == -1 ) {
+	if( ack_timer_id[NeighbourID] == -1 ) {
 		logLine(trace, "Starting ack-timer\n");
 		char *msg;
 		msg = (char *) malloc(100*sizeof(char));
 		strcpy(msg, "Ack-timer");
-		ack_timer_id[0] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
+		ack_timer_id[NeighbourID] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
 		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id[0]);
 	}
 }
@@ -518,11 +519,11 @@ void stop_ack_timer(NeighbourID)
 	char *msg;
 
 	logLine(trace, "stop_ack_timer\n");
-    if (StopTimer(ack_timer_id[0], (void *)&msg)) {
+    if (StopTimer(ack_timer_id[NeighbourID], (void *)&msg)) {
 	    logLine(trace, "timer %d stoppet. msg: %s \n", ack_timer_id, msg);
         free(msg);
     }
-    ack_timer_id[0] = -1; /*TODO*/
+    ack_timer_id[NeighbourID] = -1; /*TODO*/
 }
 
 
