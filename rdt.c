@@ -25,7 +25,7 @@
 char *StationName;         /* Globalvariabel til at overføre programnavn      */
 int ThisStation;           /* Globalvariabel der identificerer denne station. */
 log_type LogStyle;         /* Hvilken slags log skal systemet føre            */
-boolean network_layer_enabled;
+boolean network_layer_enabled[4] = {true,true,true,true};
 
 LogBuf mylog;                /* logbufferen                                     */
 
@@ -37,9 +37,9 @@ mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
 
-int ack_timer_id;
-int timer_ids[NR_BUFS];
-boolean no_nak = false; /* no nak has been sent yet */
+int ack_timer_id[4] = {0,0,0,0};
+int timer_ids[NR_BUFS*4];
+boolean nak_possible = false; /* no nak has been sent yet */
 
 static boolean between(seq_nr a, seq_nr b, seq_nr c)
 {
@@ -62,6 +62,7 @@ void packet_to_string(packet* data, char* buffer)
 
 static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, packet buffer[])
 {
+		printf("send_frame called \n" );
     /* Construct and send a data, ack, or nak frame. */
     frame s;        /* scratch variable */
 
@@ -74,14 +75,14 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
     if (fk == NAK)
     {
-    	no_nak = false;        /* one nak per frame, please */
+    	nak_possible = false;        /* one nak per frame, please */
     }
     to_physical_layer(&s);        /* transmit the frame */
     if (fk == DATA)
     {
-    	start_timer(frame_nr);
+    	start_timer(frame_nr, 0);
     }
-    stop_ack_timer();        /* no need for separate ack frame */
+    stop_ack_timer(0);        /* no need for separate ack frame */
 }
 
 /* Fake network/upper layers for station 1
@@ -119,10 +120,10 @@ void FakeNetworkLayer1()
     	switch(event.type) {
     		case network_layer_allowed_to_send:
 				Lock( network_layer_lock );
-    			if( i < 20 && network_layer_enabled) {
+    			if( i < 20 && network_layer_enabled[0]) {
         			// Signal element is ready
         			logLine(info, "Sending signal for message #%d\n", i);
-        			network_layer_enabled = false;
+        			network_layer_enabled[0] = false;
         			Signal(network_layer_ready, NULL);
         			i++;
     			}
@@ -175,9 +176,9 @@ void FakeNetworkLayer2()
     	switch(event.type) {
     		case network_layer_allowed_to_send:
 				Lock( network_layer_lock );
-    			if( network_layer_enabled && !EmptyFQ( from_network_layer_queue )  ) {
+    			if( network_layer_enabled[0] && !EmptyFQ( from_network_layer_queue )  ) {
         			logLine(info, "Signal from network layer for message\n");
-        			network_layer_enabled = false;
+        			network_layer_enabled[0] = false;
         			ClearEvent( network_layer_ready ); // Don't want to signal too many events
         			Signal(network_layer_ready, NULL);
     			}
@@ -259,7 +260,7 @@ void selective_repeat() {
 
 
 
-    enable_network_layer();  /* initialize */
+    //enable_network_layer();  /* initialize */
     ack_expected = 0;        /* next ack expected on the inbound stream */
     next_frame_to_send = 0;        /* number of next outgoing frame */
     frame_expected = 0;        /* frame number expected */
@@ -272,7 +273,9 @@ void selective_repeat() {
     	arrived[i] = false;
     	timer_ids[i] = -1;
     }
-    ack_timer_id = -1;
+     for (i = 0; i < 4; i++) {
+    	ack_timer_id[i] = -1;
+    }
 
 
     events_we_handle = frame_arrival | timeout | network_layer_ready;
@@ -312,10 +315,10 @@ void selective_repeat() {
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
-					if ((r.seq != frame_expected) && no_nak) {
+					if ((r.seq != frame_expected) && nak_possible) {
 						send_frame(NAK, 0, frame_expected, out_buf);
 					} else {
-						start_ack_timer();
+						start_ack_timer(r.info.srcStation);	/*TODO*/
 					}
 					if (between(frame_expected, r.seq, too_far) && (arrived[r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
@@ -324,11 +327,11 @@ void selective_repeat() {
 						while (arrived[frame_expected % NR_BUFS]) {
 							/* Pass frames and advance window. */
 							to_network_layer(&in_buf[frame_expected % NR_BUFS]);
-							no_nak = true;
+							nak_possible = true;
 							arrived[frame_expected % NR_BUFS] = false;
 							inc(frame_expected);        /* advance lower edge of receiver's window */
 							inc(too_far);        /* advance upper edge of receiver's window */
-							start_ack_timer();        /* to see if (a separate ack is needed */
+							start_ack_timer(r.info.srcStation);        /* to see if (a separate ack is needed TODO */
 						}
 					}
 				}
@@ -340,7 +343,7 @@ void selective_repeat() {
 				while (between(ack_expected, r.ack, next_frame_to_send)) {
 					logLine(debug, "Advancing window %d\n", ack_expected);
 					nbuffered = nbuffered - 1;        		/* handle piggybacked ack */
-					stop_timer(ack_expected % NR_BUFS);     /* frame arrived intact */
+					stop_timer(ack_expected % NR_BUFS, 0);     /* frame arrived intact */
 					inc(ack_expected);        				/* advance lower edge of sender's window */
 				}
 				break;
@@ -348,13 +351,13 @@ void selective_repeat() {
 	        case timeout: /* Ack timeout or regular timeout*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id);
+	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[0]);
 	        	logLine(info, "Message from timer: '%s'\n", (char *) event.msg );
 
-	        	if( timer_id == ack_timer_id ) { // Ack timer timer out
+	        	if( timer_id == ack_timer_id[0] ) { // Ack timer timer out
 	        		logLine(debug, "This was an ack-timer timeout. Sending explicit ack.\n");
 	        		free(event.msg);
-	        		ack_timer_id = -1; // It is no longer running
+	        		ack_timer_id[0] = -1; // It is no longer running
 	        		send_frame(ACK,0,frame_expected, out_buf);        /* ack timer expired; send ack */
 	        	} else {
 	        		int timed_out_seq_nr = atoi( (char *) event.msg );
@@ -367,25 +370,25 @@ void selective_repeat() {
 	     }
 
 	     if (nbuffered < NR_BUFS) {
-	         enable_network_layer();
+	         enable_network_layer(r.info.srcStation);		//TODO
 	     } else {
-	    	 disable_network_layer();
+	    	 disable_network_layer(r.info.srcStation);	//TODO
 	     }
 	  }
 }
 
-void enable_network_layer(void) {
+void enable_network_layer(int NeighbourID) {
 	Lock( network_layer_lock );
 	logLine(trace, "enabling network layer\n");
-	network_layer_enabled = true;
+	network_layer_enabled[NeighbourID] = true;
 	Signal( network_layer_allowed_to_send, NULL );
 	Unlock( network_layer_lock );
 }
 
-void disable_network_layer(void){
+void disable_network_layer(int NeighbourID){
 	Lock( network_layer_lock );
 	logLine(trace, "disabling network layer\n");
-	network_layer_enabled = false;
+	network_layer_enabled[NeighbourID] = false;
 	Unlock( network_layer_lock );
 }
 
@@ -455,37 +458,41 @@ int from_physical_layer(frame *r) {
 
 void to_physical_layer(frame *s)
 {
+
 	int send_to;
 
-	if( ThisStation == 1) {
+	if (ThisStation == 1){
 		send_to = 2;
 	} else {
 		send_to = 1;
 	}
 
 	print_frame(s, "sending");
-
+/*
+	s->sendTime = GetTime();
+	send_to = s->info.endStation;
+*/
 	ToSubnet(ThisStation, send_to, (char *) s, sizeof(frame));
 }
 
 
-void start_timer(seq_nr k) {
+void start_timer(seq_nr k, int NeighbourID) {
 
 	char *msg;
 	msg = (char *) malloc(100*sizeof(char));
 	sprintf(msg, "%d", k); // Save seq_nr in message
 
-	timer_ids[k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
+	timer_ids[k % NR_BUFS * NeighbourID] = SetTimer( frame_timer_timeout_millis, (void *)msg );
 	logLine(trace, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[0], timer_ids[1], timer_ids[2], timer_ids[3], msg);
 
 }
 
 
-void stop_timer(seq_nr k) {
+void stop_timer(seq_nr k, int NeighbourID) {
 	int timer_id;
 	char *msg;
 
-	timer_id = timer_ids[k];
+	timer_id = timer_ids[k * NeighbourID];
 	logLine(trace, "stop_timer for seq_nr %d med id=%d\n", k, timer_id);
 
     if (StopTimer(timer_id, (void *)&msg)) {
@@ -497,31 +504,29 @@ void stop_timer(seq_nr k) {
 }
 
 
-void start_ack_timer(void)
+void start_ack_timer(int NeighbourID)
 {
-	if( ack_timer_id == -1 ) {
+	if( ack_timer_id[NeighbourID] == -1 ) {
 		logLine(trace, "Starting ack-timer\n");
 		char *msg;
 		msg = (char *) malloc(100*sizeof(char));
 		strcpy(msg, "Ack-timer");
-		ack_timer_id = SetTimer( act_timer_timeout_millis, (void *)msg );
-		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id);
+		ack_timer_id[NeighbourID] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
+		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id[0]);
 	}
 }
 
-
-void stop_ack_timer(void)
+void stop_ack_timer(int NeighbourID)
 {
 	char *msg;
 
 	logLine(trace, "stop_ack_timer\n");
-    if (StopTimer(ack_timer_id, (void *)&msg)) {
+    if (StopTimer(ack_timer_id[NeighbourID], (void *)&msg)) {
 	    logLine(trace, "timer %d stoppet. msg: %s \n", ack_timer_id, msg);
         free(msg);
     }
-    ack_timer_id = -1;
+    ack_timer_id[NeighbourID] = -1; /*TODO*/
 }
-
 
 
 int main(int argc, char *argv[])
@@ -549,5 +554,3 @@ int main(int argc, char *argv[])
   Start();
   exit(0);
 }
-
-
