@@ -37,7 +37,7 @@ mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
 
-int ack_timer_id[4] = {0,0,0,0};
+int ack_timer_id[4] = {-1,-1,-1,-1};
 int timer_ids[NR_BUFS*4];
 boolean nak_possible = false; /* no nak has been sent yet */
 
@@ -309,7 +309,6 @@ void selective_repeat() {
 	            send_frame(DATA, next_frame_to_send, frame_expected, out_buf);        /* transmit the frame */
 	            inc(next_frame_to_send);        /* advance upper window edge */
 	            break;
-
 	        case frame_arrival:        /* a data or control frame has arrived */
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				if (r.kind == DATA) {
@@ -501,7 +500,7 @@ void stop_timer(seq_nr k, int NeighbourID) {
 }
 
 
-void start_ack_timer(NeighbourID)
+void start_ack_timer(int NeighbourID)
 {
 	if( ack_timer_id[NeighbourID] == -1 ) {
 		logLine(trace, "Starting ack-timer\n");
@@ -514,7 +513,7 @@ void start_ack_timer(NeighbourID)
 }
 
 
-void stop_ack_timer(NeighbourID)
+void stop_ack_timer(int NeighbourID)
 {
 	char *msg;
 
