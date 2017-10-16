@@ -37,7 +37,7 @@ mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
 
-int ack_timer_id[4] = {0,0,0,0};
+int ack_timer_id[4] = {-1,-1,-1,-1};
 int timer_ids[NR_BUFS*4];
 boolean nak_possible = false; /* no nak has been sent yet */
 
@@ -77,7 +77,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     {
     	nak_possible = false;        /* one nak per frame, please */
     }
-    to_physical_layer(&s);        /* transmit the frame */
+    to_physical_layer(&s, 0);        /* transmit the frame */
     if (fk == DATA)
     {
     	start_timer(frame_nr, 0);
@@ -318,7 +318,7 @@ void selective_repeat() {
 					if ((r.seq != frame_expected) && nak_possible) {
 						send_frame(NAK, 0, frame_expected, out_buf);
 					} else {
-						start_ack_timer(r.info.srcStation);	/*TODO*/
+						start_ack_timer(0);	/*TODO*/
 					}
 					if (between(frame_expected, r.seq, too_far) && (arrived[r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
@@ -331,7 +331,7 @@ void selective_repeat() {
 							arrived[frame_expected % NR_BUFS] = false;
 							inc(frame_expected);        /* advance lower edge of receiver's window */
 							inc(too_far);        /* advance upper edge of receiver's window */
-							start_ack_timer(r.info.srcStation);        /* to see if (a separate ack is needed TODO */
+							start_ack_timer(0);        /* to see if (a separate ack is needed TODO */
 						}
 					}
 				}
@@ -370,9 +370,9 @@ void selective_repeat() {
 	     }
 
 	     if (nbuffered < NR_BUFS) {
-	         enable_network_layer(r.info.srcStation);		//TODO
+	         enable_network_layer(0);		//TODO
 	     } else {
-	    	 disable_network_layer(r.info.srcStation);	//TODO
+	    	 disable_network_layer(0);	//TODO
 	     }
 	  }
 }
@@ -456,7 +456,7 @@ int from_physical_layer(frame *r) {
 }
 
 
-void to_physical_layer(frame *s)
+void to_physical_layer(frame *s, int reciever)
 {
 
 	int send_to;

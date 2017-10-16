@@ -31,6 +31,7 @@ typedef struct {        /* frames are transported in this layer */
   packet info;          /* the network layer packet */
   int sendTime;
   int recvTime;
+  int fromStation;
 } frame;
 
 /* init_frame fills in default initial values in a frame. Protocols should
@@ -50,25 +51,25 @@ void to_network_layer(packet *p);
 int from_physical_layer(frame *r);
 
 /* Pass the frame to the physical layer for transmission. */
-void to_physical_layer(frame *s);
+void to_physical_layer(frame *s, int reciever);
 
 /* Start the clock running and enable the timeout event. */
-void start_timer(seq_nr k);
+void start_timer(seq_nr k, int NeighbourID);
 
 /* Stop the clock and disable the timeout event. */
-void stop_timer(seq_nr k);
+void stop_timer(seq_nr k, int NeighbourID);
 
 /* Start an auxiliary timer and enable the ack_timeout event. */
-void start_ack_timer(void);
+void start_ack_timer(int NeighbourID);
 
 /* Stop the auxiliary timer and disable the ack_timeout event. */
-void stop_ack_timer(void);
+void stop_ack_timer(int NeighbourID);
 
 /* Allow the network layer to cause a network_layer_ready event. */
-void enable_network_layer(void);
+void enable_network_layer(int NeighbourID);
 
 /* Forbid the network layer from causing a network_layer_ready event. */
-void disable_network_layer(void);
+void disable_network_layer(int NeighbourID);
 
 /* In case of a timeout event, it is possible to find out the sequence
  * number of the frame that timed out (this is the sequence number parameter
