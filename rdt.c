@@ -19,6 +19,7 @@
 
 #define MAX_SEQ 127        /* should be 2^n - 1 */
 #define NR_BUFS 4
+#define nrOfStations 4
 
 /* Globale variable */
 
@@ -60,7 +61,7 @@ void packet_to_string(packet* data, char* buffer)
 
 }
 
-static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, packet buffer[])
+static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, packet buffer[], int dest)
 {
     /* Construct and send a data, ack, or nak frame. */
     frame s;        /* scratch variable */
@@ -76,12 +77,12 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     {
     	nak_possible = false;        /* one nak per frame, please */
     }
-    to_physical_layer(&s, 0);        /* transmit the frame */
+    to_physical_layer(&s, dest);        /* transmit the frame TODO*/
     if (fk == DATA)
     {
-    	start_timer(frame_nr, 0);
+    	start_timer(frame_nr, dest);
     }
-    stop_ack_timer(0);        /* no need for separate ack frame */
+    stop_ack_timer(dest);        /* no need for separate ack frame */
 }
 
 /* Fake network/upper layers for station 1
@@ -237,9 +238,9 @@ void log_event_received(long int event) {
 }
 
 void selective_repeat() {
-    seq_nr ack_expected;              /* lower edge of sender's window */
-    seq_nr next_frame_to_send;        /* upper edge of sender's window + 1 */
-    seq_nr frame_expected;            /* lower edge of receiver's window */
+    seq_nr ack_expected[nrOfStations];              /* lower edge of sender's window */
+    seq_nr next_frame_to_send[nrOfStations];        /* upper edge of sender's window + 1 */
+    seq_nr frame_expected[nrOfStations];            /* lower edge of receiver's window */
     seq_nr too_far;                   /* upper edge of receiver's window + 1 */
     int i;                            /* index into buffer pool */
     frame r;                          /* scratch variable */
@@ -257,9 +258,10 @@ void selective_repeat() {
     Init_lock(write_lock);
     Init_lock( network_layer_lock );
 
-
-
-    enable_network_layer(0);  /* initialize */
+    for (n = 0; n < nrOfStations; n++){
+    	 enable_network_layer(i);  /* initialize */
+    }
+   
     ack_expected = 0;        /* next ack expected on the inbound stream */
     next_frame_to_send = 0;        /* number of next outgoing frame */
     frame_expected = 0;        /* frame number expected */
@@ -306,7 +308,7 @@ void selective_repeat() {
             	logLine(trace, "Network layer delivers frame - lets send it\n");
 	            nbuffered = nbuffered + 1;        /* expand the window */
 	            from_network_layer(&out_buf[next_frame_to_send % NR_BUFS]); /* fetch new packet */
-	            send_frame(DATA, next_frame_to_send, frame_expected, out_buf);        /* transmit the frame */
+	            send_frame(DATA, next_frame_to_send, frame_expected, out_buf, &out_buf[next_frame_to_send % NR_BUFS]->dest);        /* transmit the frame */
 	            inc(next_frame_to_send);        /* advance upper window edge */
 	            break;
 
@@ -315,9 +317,9 @@ void selective_repeat() {
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected) && nak_possible) {
-						send_frame(NAK, 0, frame_expected, out_buf);
+						send_frame(NAK, 0, frame_expected, out_buf, r.fromStation);
 					} else {
-						start_ack_timer(0);	/*TODO*/
+						start_ack_timer(r.fromStation);	/*TODO*/
 					}
 					if (between(frame_expected, r.seq, too_far) && (arrived[r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
@@ -330,39 +332,44 @@ void selective_repeat() {
 							arrived[frame_expected % NR_BUFS] = false;
 							inc(frame_expected);        /* advance lower edge of receiver's window */
 							inc(too_far);        /* advance upper edge of receiver's window */
-							start_ack_timer(0);        /* to see if (a separate ack is needed TODO */
+							start_ack_timer(r.fromStation);        /* to see if (a separate ack is needed TODO */
 						}
 					}
 				}
 				if((r.kind==NAK) && between(ack_expected,(r.ack+1)%(MAX_SEQ+1),next_frame_to_send))	{
-					send_frame(DATA, (r.ack+1) % (MAX_SEQ + 1), frame_expected, out_buf);
+					send_frame(DATA, (r.ack+1) % (MAX_SEQ + 1), frame_expected, out_buf, &out_buf[next_frame_to_send % NR_BUFS]->dest);
 				}
 
 				logLine(info, "Are we between so we can advance window? ack_expected=%d, r.ack=%d, next_frame_to_send=%d\n", ack_expected, r.ack, next_frame_to_send);
 				while (between(ack_expected, r.ack, next_frame_to_send)) {
 					logLine(debug, "Advancing window %d\n", ack_expected);
 					nbuffered = nbuffered - 1;        		/* handle piggybacked ack */
-					stop_timer(ack_expected % NR_BUFS, 0);     /* frame arrived intact */
+					stop_timer(ack_expected % NR_BUFS, r.fromStation);     /* frame arrived intact */
 					inc(ack_expected);        				/* advance lower edge of sender's window */
 				}
 				break;
 
-	        case timeout: /* Ack timeout or regular timeout*/
+	        case timeout: /* Ack timeout or regular timeout. Muligvis fejl her.*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[0]);
+	        	int o = 0;
+	        	for (int x = 0; x < 4; x++)  {
+	        		if (ack_timer_id[x] == timer_id){
+	        			o = ack_timer_id[x]
+	        		} 
+	        	}
+	        	
+	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[x]);
 	        	logLine(info, "Message from timer: '%s'\n", (char *) event.msg );
 
-	        	if( timer_id == ack_timer_id[0] ) { // Ack timer timer out
-	        		logLine(debug, "This was an ack-timer timeout. Sending explicit ack.\n");
+	        	if( timer_id == ack_timer_id[o] ) { // Ack timer timer out
+	        		
+	        		logLine(debug, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
 	        		free(event.msg);
-	        		ack_timer_id[0] = -1; // It is no longer running
-	        		send_frame(ACK,0,frame_expected, out_buf);        /* ack timer expired; send ack */
+	        		ack_timer_id[o] = -1;
+	        		send_frame(ACK,0,frame_expected, out_buf, o+1);
 	        	} else {
 	        		int timed_out_seq_nr = atoi( (char *) event.msg );
-
-
-	        		logLine(debug, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
 		        	send_frame(DATA, timed_out_seq_nr, frame_expected, out_buf);
 	        	}
 	        	break;
@@ -457,21 +464,21 @@ int from_physical_layer(frame *r) {
 
 void to_physical_layer(frame *s, int reciever)
 {
-
+	/*
 	int send_to;
-
+	
 	if (ThisStation == 1){
 		send_to = 2;
 	} else {
 		send_to = 1;
 	}
-
+	*/
 	print_frame(s, "sending");
-/*
+
+	s->fromStation = ThisStation;
 	s->sendTime = GetTime();
-	send_to = s->info.endStation;
-*/
-	ToSubnet(ThisStation, send_to, (char *) s, sizeof(frame));
+
+	ToSubnet(ThisStation, reciever, (char *) s, sizeof(frame));
 }
 
 

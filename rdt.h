@@ -16,11 +16,13 @@
 #define frame_timer_timeout_millis  250
 #define act_timer_timeout_millis     50
 
-#define MAX_PKT 8        /* determines packet size in bytes */
+#define MAX_PKT 16        /* determines packet size in bytes */
 
 typedef enum {false, true} boolean;        /* boolean type */
 typedef unsigned int seq_nr;        /* sequence or ack numbers */
-typedef struct {char data[MAX_PKT];} packet;        /* packet definition */
+typedef struct {char data[MAX_PKT];
+				int dest;
+				int src;} packet;        /* packet definition */
 typedef enum {DATA, ACK, NAK} frame_kind;        /* frame_kind definition */
 
 
