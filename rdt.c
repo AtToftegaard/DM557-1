@@ -62,7 +62,6 @@ void packet_to_string(packet* data, char* buffer)
 
 static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, packet buffer[])
 {
-		printf("send_frame called \n" );
     /* Construct and send a data, ack, or nak frame. */
     frame s;        /* scratch variable */
 
@@ -260,7 +259,7 @@ void selective_repeat() {
 
 
 
-    //enable_network_layer();  /* initialize */
+    enable_network_layer(0);  /* initialize */
     ack_expected = 0;        /* next ack expected on the inbound stream */
     next_frame_to_send = 0;        /* number of next outgoing frame */
     frame_expected = 0;        /* frame number expected */
