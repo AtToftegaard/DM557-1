@@ -39,8 +39,8 @@ mlock_t *write_lock;
 packet ugly_buffer; // TODO Make this a queue
 
 int ack_timer_id[4] = {-1,-1,-1,-1};
-int timer_ids[NR_BUFS*4];
-boolean nak_possible = false; /* no nak has been sent yet */
+int timer_ids[nrOfStations][NR_BUFS];
+boolean nak_possible[nrOfStations]; /* no nak has been sent yet */
 
 static boolean between(seq_nr a, seq_nr b, seq_nr c)
 {
@@ -75,7 +75,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
     if (fk == NAK)
     {
-    	nak_possible = false;        /* one nak per frame, please */
+    	nak_possible[s.fromStation] = false;        /* one nak per frame, please */
     }
     to_physical_layer(&s, dest);        /* transmit the frame TODO*/
     if (fk == DATA)
@@ -241,13 +241,14 @@ void selective_repeat() {
     seq_nr ack_expected[nrOfStations];              /* lower edge of sender's window */
     seq_nr next_frame_to_send[nrOfStations];        /* upper edge of sender's window + 1 */
     seq_nr frame_expected[nrOfStations];            /* lower edge of receiver's window */
-    seq_nr too_far;                   /* upper edge of receiver's window + 1 */
-    int i;                            /* index into buffer pool */
+    seq_nr too_far[nrOfStations];                   /* upper edge of receiver's window + 1 */
+    int i, packet_dest = 0, frame_sender;                            /* index into buffer pools */
     frame r;                          /* scratch variable */
-    packet out_buf[NR_BUFS];          /* buffers for the outbound stream */
-    packet in_buf[NR_BUFS];           /* buffers for the inbound stream */
-    boolean arrived[NR_BUFS];         /* inbound bit map */
-    seq_nr nbuffered;                 /* how many output buffers currently used */
+    packet pck;						  /* scratch variable*/
+    packet out_buf[nrOfStations][NR_BUFS];          /* buffers for the outbound stream */
+    packet in_buf[nrOfStations][NR_BUFS];           /* buffers for the inbound stream */
+    boolean arrived[nrOfStations][NR_BUFS];         /* inbound bit map */
+    seq_nr nbuffered[nrOfStations];                 /* how many output buffers currently used */
     event_t event;
     long int events_we_handle;
     unsigned int timer_id;
@@ -258,26 +259,26 @@ void selective_repeat() {
     Init_lock(write_lock);
     Init_lock( network_layer_lock );
 
-    for (n = 0; n < nrOfStations; n++){
-    	 enable_network_layer(i);  /* initialize */
+    for (int n = 0; n < nrOfStations; n++){
+    	enable_network_layer(n);  /* initialize */
+    	ack_expected[n] = 0;        /* next ack expected on the inbound stream */
+   		next_frame_to_send[n] = 0;        /* number of next outgoing frame */
+    	frame_expected[n] = 0;        /* frame number expected */
+    	too_far[n] = NR_BUFS;        /* receiver's upper window + 1 */
+    	nbuffered[n] = 0;        /* initially no packets are buffered */
     }
    
-    ack_expected = 0;        /* next ack expected on the inbound stream */
-    next_frame_to_send = 0;        /* number of next outgoing frame */
-    frame_expected = 0;        /* frame number expected */
-    too_far = NR_BUFS;        /* receiver's upper window + 1 */
-    nbuffered = 0;        /* initially no packets are buffered */
 
     logLine(trace, "Starting selective repeat %d\n", ThisStation);
 
-    for (i = 0; i < NR_BUFS; i++) {
-    	arrived[i] = false;
-    	timer_ids[i] = -1;
-    }
-     for (i = 0; i < 4; i++) {
+    for (i = 0; i < nrOfStations; i++) {
+    	for (int j = 0; j<NR_BUFS; j++){
+    		arrived[i][j] = false;	
+    		timer_ids[i][j] = -1;
+    	}
+    	nak_possible[i] = false;
     	ack_timer_id[i] = -1;
     }
-
 
     events_we_handle = frame_arrival | timeout | network_layer_ready;
 
@@ -306,79 +307,93 @@ void selective_repeat() {
         switch(event.type) {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
             	logLine(trace, "Network layer delivers frame - lets send it\n");
-	            nbuffered = nbuffered + 1;        /* expand the window */
-	            from_network_layer(&out_buf[next_frame_to_send % NR_BUFS]); /* fetch new packet */
-	            send_frame(DATA, next_frame_to_send, frame_expected, out_buf, &out_buf[next_frame_to_send % NR_BUFS]->dest);        /* transmit the frame */
-	            inc(next_frame_to_send);        /* advance upper window edge */
+	            from_network_layer(&pck);
+	            packet_dest = pck.dest-1;
+	            nbuffered[packet_dest] = nbuffered[packet_dest]+1;        /* expand the window */
+	            memcpy(&out_buf[packet_dest][next_frame_to_send[packet_dest] % NR_BUFS], &pck, sizeof(packet));
+	            //from_network_layer(&out_buf[next_frame_to_send % NR_BUFS]); /* fetch new packet */
+	            send_frame(DATA, next_frame_to_send[packet_dest], frame_expected[packet_dest], out_buf[packet_dest], packet_dest+1);        /* transmit the frame */
+	            inc(next_frame_to_send[packet_dest]);        /* advance upper window edge */
 	            break;
 
 	        case frame_arrival:        /* a data or control frame has arrived */
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
+	            frame_sender = r.fromStation-1; /* I'm not very smart*/ 
+	            packet_dest = r.fromStation-1;
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
-					if ((r.seq != frame_expected) && nak_possible) {
-						send_frame(NAK, 0, frame_expected, out_buf, r.fromStation);
+					if ((r.seq != frame_expected[frame_sender]) && nak_possible[frame_sender]) {
+						send_frame(NAK, 0, frame_expected[frame_sender], out_buf[frame_sender], frame_sender+1);
 					} else {
-						start_ack_timer(r.fromStation);	/*TODO*/
+						start_ack_timer(frame_sender);	/*TODO*/
 					}
-					if (between(frame_expected, r.seq, too_far) && (arrived[r.seq%NR_BUFS] == false)) {
+					if (between(frame_expected[frame_sender], r.seq, too_far[frame_sender]) && (arrived[r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
-						arrived[r.seq % NR_BUFS] = true;        /* mark buffer as full */
-						in_buf[r.seq % NR_BUFS] = r.info;        /* insert data into buffer */
-						while (arrived[frame_expected % NR_BUFS]) {
+						arrived[frame_sender][r.seq % NR_BUFS] = true;        /* mark buffer as full */
+						in_buf[frame_sender][r.seq % NR_BUFS] = r.info;        /* insert data into buffer */
+						while (arrived[frame_sender][frame_expected[frame_sender] % NR_BUFS]) {
 							/* Pass frames and advance window. */
-							to_network_layer(&in_buf[frame_expected % NR_BUFS]);
-							nak_possible = true;
-							arrived[frame_expected % NR_BUFS] = false;
-							inc(frame_expected);        /* advance lower edge of receiver's window */
-							inc(too_far);        /* advance upper edge of receiver's window */
-							start_ack_timer(r.fromStation);        /* to see if (a separate ack is needed TODO */
+							to_network_layer(&in_buf[frame_sender][frame_expected[frame_sender]% NR_BUFS]);
+							nak_possible[frame_sender]= true;
+							arrived[frame_sender][frame_expected[frame_sender]% NR_BUFS] = false;
+							inc(frame_expected[frame_sender]);        /* advance lower edge of receiver's window */
+							inc(too_far[frame_sender]);        /* advance upper edge of receiver's window */
+							start_ack_timer(frame_sender);        /* to see if (a separate ack is needed TODO */
 						}
 					}
 				}
-				if((r.kind==NAK) && between(ack_expected,(r.ack+1)%(MAX_SEQ+1),next_frame_to_send))	{
-					send_frame(DATA, (r.ack+1) % (MAX_SEQ + 1), frame_expected, out_buf, &out_buf[next_frame_to_send % NR_BUFS]->dest);
+				if((r.kind==NAK) && between(ack_expected[frame_sender],(r.ack+1)%(MAX_SEQ+1),next_frame_to_send[frame_sender]))	{
+					send_frame(DATA, (r.ack+1) % (MAX_SEQ + 1), frame_expected[frame_sender], out_buf[frame_sender], frame_sender+1);
 				}
 
 				logLine(info, "Are we between so we can advance window? ack_expected=%d, r.ack=%d, next_frame_to_send=%d\n", ack_expected, r.ack, next_frame_to_send);
-				while (between(ack_expected, r.ack, next_frame_to_send)) {
+				while (between(ack_expected[frame_sender], r.ack, next_frame_to_send[frame_sender])) {
 					logLine(debug, "Advancing window %d\n", ack_expected);
-					nbuffered = nbuffered - 1;        		/* handle piggybacked ack */
-					stop_timer(ack_expected % NR_BUFS, r.fromStation);     /* frame arrived intact */
-					inc(ack_expected);        				/* advance lower edge of sender's window */
+					nbuffered[frame_sender] = nbuffered[frame_sender] - 1;        		/* handle piggybacked ack */
+					stop_timer(ack_expected[frame_sender]% NR_BUFS, r.fromStation);     /* frame arrived intact */
+					inc(ack_expected[r.fromStation]);        				/* advance lower edge of sender's window */
 				}
 				break;
 
 	        case timeout: /* Ack timeout or regular timeout. Muligvis fejl her.*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	int o = 0;
-	        	for (int x = 0; x < 4; x++)  {
+	        	int o = -1;
+	        	for (int x = 0; x < nrOfStations; x++)  {
 	        		if (ack_timer_id[x] == timer_id){
-	        			o = ack_timer_id[x]
-	        		} 
+	        			o = x;
+	        		} else {
+	        			for (int t = 0; t < NR_BUFS; t++){
+	        				if (timer_ids[x][t] == timer_id){
+	        					o = x;
+	        					break;
+	        				} 
+	        			}
+	        			if (o != -1){
+	        				break;
+	        			}
+	        		}
 	        	}
 	        	
-	        	logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[x]);
 	        	logLine(info, "Message from timer: '%s'\n", (char *) event.msg );
 
-	        	if( timer_id == ack_timer_id[o] ) { // Ack timer timer out
-	        		
-	        		logLine(debug, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
+	        	if( o == ack_timer_id[o] ) { // Ack timer timer out
+	        		logLine(trace, "Timeout with id: %d - acktimer_id is %d\n", timer_id, ack_timer_id[o]);
 	        		free(event.msg);
 	        		ack_timer_id[o] = -1;
-	        		send_frame(ACK,0,frame_expected, out_buf, o+1);
+	        		send_frame(ACK,0,frame_expected[o], out_buf[o], o+1);
 	        	} else {
 	        		int timed_out_seq_nr = atoi( (char *) event.msg );
-		        	send_frame(DATA, timed_out_seq_nr, frame_expected, out_buf);
+	        		logLine(debug, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
+		        	send_frame(DATA, timed_out_seq_nr, frame_expected[o], out_buf[o], o+1);
 	        	}
 	        	break;
 	     }
 
-	     if (nbuffered < NR_BUFS) {
-	         enable_network_layer(0);		//TODO
+	     if (nbuffered[packet_dest] < NR_BUFS) {
+	         enable_network_layer(packet_dest);		//TODO
 	     } else {
-	    	 disable_network_layer(0);	//TODO
+	    	 disable_network_layer(packet_dest);	//TODO
 	     }
 	  }
 }
@@ -488,7 +503,7 @@ void start_timer(seq_nr k, int NeighbourID) {
 	msg = (char *) malloc(100*sizeof(char));
 	sprintf(msg, "%d", k); // Save seq_nr in message
 
-	timer_ids[k % NR_BUFS * NeighbourID] = SetTimer( frame_timer_timeout_millis, (void *)msg );
+	timer_ids[NeighbourID][k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
 	logLine(trace, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[0], timer_ids[1], timer_ids[2], timer_ids[3], msg);
 
 }
@@ -498,7 +513,7 @@ void stop_timer(seq_nr k, int NeighbourID) {
 	int timer_id;
 	char *msg;
 
-	timer_id = timer_ids[k * NeighbourID];
+	timer_id = timer_ids[NeighbourID][k];
 	logLine(trace, "stop_timer for seq_nr %d med id=%d\n", k, timer_id);
 
     if (StopTimer(timer_id, (void *)&msg)) {
