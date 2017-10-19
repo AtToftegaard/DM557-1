@@ -25,7 +25,7 @@
 
 char *StationName;         /* Globalvariabel til at overføre programnavn      */
 int ThisStation;           /* Globalvariabel der identificerer denne station. */
-int nrOfMessagesToSend = 10;
+int nrOfMessagesToSend = 5;
 log_type LogStyle;         /* Hvilken slags log skal systemet føre            */
 boolean network_layer_enabled[nrOfStations];
 
@@ -42,6 +42,7 @@ packet ugly_buffer; // TODO Make this a queue
 int ack_timer_id[4] = {-1,-1,-1,-1};
 int timer_ids[nrOfStations][NR_BUFS];
 boolean nak_possible[nrOfStations]; /* no nak has been sent yet */
+int destinationStation[4] = {1,2,3,4};
 
 static boolean between(seq_nr a, seq_nr b, seq_nr c)
 {
@@ -66,7 +67,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
 {
     /* Construct and send a data, ack, or nak frame. */
     frame s;        /* scratch variable */
-	printf("send_frame for station: %d frame_nr -> %d \n", dest, frame_nr );
+	printf("send_frame called with kind = %c frame_nr = %d frame_expected = %d for station: %d \n", fk, frame_nr, frame_expected, dest );
     s.kind = fk;        /* kind == data, ack, or nak */
     if (fk == DATA)
     {
@@ -76,7 +77,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ+1);
     if (fk == NAK)
     {
-    	nak_possible[s.fromStation] = false;        /* one nak per frame, please */
+    	nak_possible[dest] = false;        /* one nak per frame, please */
     }
     to_physical_layer(&s, dest);        /* transmit the frame */
     if (fk == DATA)
@@ -92,6 +93,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
  * */
 void FakeNetworkLayer1()
 {
+	int target = destinationStation[ThisStation];
 	char *buffer;
 	packet *pack;
 	int i,j;
@@ -125,10 +127,9 @@ void FakeNetworkLayer1()
     	// Wait until we are allowed to transmit
     	Wait(&event, events_we_handle);
 
-    	printf("%s\n","FakeNetworkLayer1 Event" );
-
     	switch(event.type) {
     		case network_layer_allowed_to_send:
+    			printf("Station: %d Case: network_layer_allowed_to_send \n", ThisStation);
 				Lock( network_layer_lock );
     			if( i < nrOfMessagesToSend && network_layer_enabled[1]) {
         			// Signal element is ready
@@ -140,6 +141,7 @@ void FakeNetworkLayer1()
 				Unlock( network_layer_lock );
     			break;
     		case data_for_network_layer:
+    			printf("Station: %d Case: data_for_network_layer\n", ThisStation);
 				Lock( network_layer_lock );
 
 				e = DequeueFQ( for_network_layer_queue );
@@ -162,65 +164,6 @@ void FakeNetworkLayer1()
     }
 }
 
-/* Fake network/upper layers for station 2
- *
- * Receive 20 messages, take the first 10, lowercase first letter and send to station 1.
- * With this, some acks will be piggybacked, some will be pure acks.
- *
- **/
-void FakeNetworkLayer2()
-{
-    long int events_we_handle;
-    event_t event;
-	int j;
-	FifoQueueEntry e;
-
-    from_network_layer_queue = InitializeFQ();
-    for_network_layer_queue = InitializeFQ();
-
-    events_we_handle = network_layer_allowed_to_send | data_for_network_layer;
-
-    j = 0;
-    while( true ) {
-    	// Wait until we are allowed to transmit
-    	Wait(&event, events_we_handle);
-
-    	switch(event.type) {
-    		case network_layer_allowed_to_send:
-    			printf("Case: network_layer_allowed_to_send : FakeNetworkLayer2 \n");
-				Lock( network_layer_lock );
-    			if( network_layer_enabled[0] && !EmptyFQ( from_network_layer_queue )  ) {
-        			logLine(info, "Signal from network layer for message\n");
-        			network_layer_enabled[0] = false;
-        			ClearEvent( network_layer_ready ); // Don't want to signal too many events
-        			Signal(network_layer_ready, NULL);
-    			}
-				Unlock( network_layer_lock );
-    			break;
-    		case data_for_network_layer:
-				Lock( network_layer_lock );
-
-				e = DequeueFQ( for_network_layer_queue );
-    			logLine(succes, "Received message: %s\n" ,( (char *) e->val) );
-
-    			if( j < 2) {
-   					( (char *) e->val)[0] = 'd';
-   					EnqueueFQ( e, from_network_layer_queue );
-    			}
-
-				Unlock( network_layer_lock );
-
-				j++;
-    			logLine(info, "j: %d\n" ,j );
-    			break;
-    	}
-		if( EmptyFQ( from_network_layer_queue ) && j >= 2) {
-			logLine(succes, "Stopping - received 20 messages and sent 10\n"  );
-		    sleep(5);
-		    Stop();
-		}
-    }
-}
 
 void log_event_received(long int event) {
 	char *event_name;
@@ -308,29 +251,29 @@ void selective_repeat() {
     while (true) {
         // Wait for any of these events
     	inc(m);
-    	printf("%d\n", m );
+    	//printf("Station: %d loop %d\n", ThisStation, m );
     	Wait(&event, events_we_handle);
         log_event_received(event.type);
 
         switch(event.type) {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
-            	printf("%s\n", "Case: network_layer_ready" );
+            	//printf("Station: %d Case: network_layer_ready\n", ThisStation );
             	logLine(trace, "Network layer delivers frame - lets send it\n");
 	            from_network_layer(&pck);
 	            packet_dest = pck.dest-1;
 	            nbuffered[packet_dest] = nbuffered[packet_dest]+1;        /* expand the window */
 	            memcpy(&out_buf[packet_dest][next_frame_to_send[packet_dest] % NR_BUFS], &pck, sizeof(packet));
 	            //from_network_layer(&out_buf[next_frame_to_send % NR_BUFS]); /* fetch new packet */
-	            printf("%s %d\n", "(network_layer_ready) sending to", packet_dest+1 );
+	            //printf("%s %d\n", "(network_layer_ready) sending to", packet_dest+1 );
 	            send_frame(DATA, next_frame_to_send[packet_dest], frame_expected[packet_dest], out_buf[packet_dest], packet_dest+1);        /* transmit the frame */
 	            inc(next_frame_to_send[packet_dest]);        /* advance upper window edge */
-	            printf("Next frame to send is now: %d\n", next_frame_to_send[packet_dest] );
+	            //printf("Next frame to send is now: %d\n", next_frame_to_send[packet_dest] );
 	            break;
 
 	        case frame_arrival:        /* a data or control frame has arrived */
 	            
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
-				printf("Case: frame_arrival from station: %d. Frame seq is: %d \n", r.fromStation, r.seq );
+				//printf("Station: %d Case: frame_arrival from station: %d. Frame seq is: %d \n", ThisStation, r.fromStation, r.seq );
 				frame_sender = r.fromStation;
 	            sender_index = r.fromStation-1; /* I'm not very smart*/ 
 	            packet_dest = sender_index;
@@ -338,28 +281,28 @@ void selective_repeat() {
 	            	printf("Received ACK-message from %d for frame-number %d\n", r.fromStation, r.ack );
 	            }
 				if (r.kind == DATA) {
-					printf("Received data-frame from %d \n", r.info.src);
+					printf("Received data-frame from %d message: %s \n", r.info.src, r.info.data);
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected[sender_index]) && nak_possible[sender_index]) {
-						printf("Frame number is: %d, expected: %d from station: %d. Sending NAK\n", r.seq, frame_expected[sender_index], sender_index+1 );
+						//printf("Frame number is: %d, expected: %d from station: %d. Sending NAK\n", r.seq, frame_expected[sender_index], sender_index+1 );
 						send_frame(NAK, 0, frame_expected[sender_index], out_buf[sender_index], frame_sender);
 					} else {
-						start_ack_timer(sender_index);	
+						start_ack_timer(frame_sender);	
 					}
 					if (between(frame_expected[sender_index], r.seq, too_far[sender_index]) && (arrived[sender_index][r.seq%NR_BUFS] == false)) {
 						/* Frames may be accepted in any order. */
 						arrived[sender_index][r.seq % NR_BUFS] = true;        /* mark buffer as full */
-						printf("%d is now true\n", arrived[sender_index][r.seq % NR_BUFS] );
+						printf("arrived[%d][%d] is now true\n", sender_index, r.seq % NR_BUFS );
 						in_buf[sender_index][r.seq % NR_BUFS] = r.info;        /* insert data into buffer */
 						while (arrived[sender_index][frame_expected[sender_index] % NR_BUFS]) {
 							/* Pass frames and advance window. */
+							printf("Advancing receivers window\n");
 							to_network_layer(&in_buf[sender_index][frame_expected[sender_index]% NR_BUFS]);
 							nak_possible[sender_index]= true;
 							arrived[sender_index][frame_expected[sender_index]% NR_BUFS] = false;
 							inc(frame_expected[sender_index]);        /* advance lower edge of receiver's window */
-							printf("Old frame expected: %d new frame expected %d for station %d \n", frame_expected[sender_index]-1, frame_expected[sender_index], frame_sender );
 							inc(too_far[sender_index]);        /* advance upper edge of receiver's window */
-							start_ack_timer(sender_index);        /* to see if (a separate ack is needed  */
+							start_ack_timer(frame_sender);        /* to see if (a separate ack is needed  */
 						}
 					}
 				}
@@ -367,16 +310,15 @@ void selective_repeat() {
 					printf("%s %d\n", "Received NAK,sending again.", frame_sender );
 					send_frame(DATA, (r.ack+1) % (MAX_SEQ + 1), frame_expected[sender_index], out_buf[sender_index], sender_index+1);
 				}
-				printf("expecting ack -> %d frame_ack -> %d next_frame_to_send -> %d \n",ack_expected[sender_index], r.ack, next_frame_to_send[sender_index] );
+				//printf("Expecting ack -> %d frame_ack -> %d next_frame_to_send -> %d \n",ack_expected[sender_index], r.ack, next_frame_to_send[sender_index] );
 				logLine(info, "Are we between so we can advance window? ack_expected=%d, r.ack=%d, next_frame_to_send=%d\n", ack_expected, r.ack, next_frame_to_send);
 				while (between(ack_expected[sender_index], r.ack, next_frame_to_send[sender_index])) {
-					printf("Entered while-loop below ack-expectation\n");
+					printf("Advancing senders windows\n");
 					logLine(debug, "Advancing window %d\n", ack_expected);
 					nbuffered[sender_index] = nbuffered[sender_index] - 1;        		/* handle piggybacked ack */
 					stop_timer(ack_expected[sender_index]% NR_BUFS, frame_sender);     /* frame arrived intact */
 					inc(ack_expected[sender_index]);        				/* advance lower edge of sender's window */
 				}
-				printf("Exiting frame_arrival\n");
 				break;
 
 	        case timeout: /* Ack timeout or regular timeout. Muligvis fejl her.*/
@@ -403,7 +345,7 @@ void selective_repeat() {
 	        			}
 	        		}
 	        	}
-	        	printf("Timer subject -> %d timer_id -> %d ack_timer_id -> %d \n", sender_index, timer_id, ack_timer_id[sender_index]);
+	        	//printf("Timer subject -> %d timer_id -> %d ack_timer_id -> %d \n", sender_index, timer_id, ack_timer_id[sender_index]);
 	        	logLine(info, "Message from timer: '%s'\n", (char *) event.msg );
 
 	        	if( timer_id == ack_timer_id[sender_index] ) { // Ack timer timer out
@@ -422,10 +364,10 @@ void selective_repeat() {
 	     }
 
 	     if (nbuffered[packet_dest] < NR_BUFS) {
-	     	 printf("Enabling network_layer for %d \n", packet_dest+1);
+	     	 //printf("Station: %d Enabling network_layer for %d \n",ThisStation, packet_dest+1);
 	         enable_network_layer(packet_dest);		
 	     } else {
-	     	 printf("Disabling network_layer for %d \n", packet_dest+1);
+	     	 //printf("station: %d Disabling network_layer for %d \n",ThisStation, packet_dest+1);
 	    	 disable_network_layer(packet_dest);	
 	     }
 	  }
@@ -436,7 +378,7 @@ void enable_network_layer(int NeighbourID) {
 	Lock( network_layer_lock );
 	logLine(trace, "enabling network layer\n");
 	network_layer_enabled[NeighbourID] = true;
-	printf("Layer enabled for %d \n",NeighbourID+1 );
+	//printf("Layer enabled for %d \n",NeighbourID+1 );
 	Signal( network_layer_allowed_to_send, NULL );
 	Unlock( network_layer_lock );
 }
@@ -451,7 +393,6 @@ void disable_network_layer(int NeighbourID){
 void from_network_layer(packet *p) {
     FifoQueueEntry e;
 
-    printf("%s \n","from_network_layer called");
 	Lock( network_layer_lock );
 	e = DequeueFQ( from_network_layer_queue );
     Unlock( network_layer_lock );
@@ -487,12 +428,15 @@ void print_frame(frame* s, char *direction) {
 
 	switch( s->kind ) {
 		case ACK:
+			printf( "%s: ACK frame. Ack seq_nr=%d\n", direction, s->ack);
 			logLine(info, "%s: ACK frame. Ack seq_nr=%d\n", direction, s->ack);
 			break;
 		case NAK:
+			printf("%s: NAK frame. Nak seq_nr=%d\n", direction, s->ack);
 			logLine(info, "%s: NAK frame. Nak seq_nr=%d\n", direction, s->ack);
 			break;
 		case DATA:
+			printf("%s: DATA frame. Frame seq_nr=%d\n", direction, s->ack);
 			packet_to_string(&(s->info), temp);
 			logLine(info, "%s: DATA frame [seq=%d, ack=%d, kind=%d, (%s)] \n", direction, s->seq, s->ack, s->kind, temp);
 			break;
@@ -509,8 +453,8 @@ int from_physical_layer(frame *r) {
 	logLine(trace, "Receiving from subnet in station %d\n", ThisStation);
 	FromSubnet(&source, &dest, (char *) r, &length);
 	r->fromStation = source;
-	print_frame(r, "received");
-	printf("from_physical_layer received from: %d destination: %d length: %d \n",source, dest, length );
+	print_frame(r, "received");;
+	//printf("from_physical_layer received from: %d destination: %d length: %d \n",source, dest, length );
 
 	return 0;
 }
@@ -538,12 +482,13 @@ void to_physical_layer(frame *s, int reciever)
 
 void start_timer(seq_nr k, int NeighbourID) {
 
-	printf("setting timer for seq_nr: %d to neighbour:%d\n",k, NeighbourID );
+	int index = NeighbourID-1;
+	printf("Setting timer for seq_nr: %d to neighbour:%d\n",k, NeighbourID );
 	char *msg;
 	msg = (char *) malloc(100*sizeof(char));
 	sprintf(msg, "%d", k); // Save seq_nr in message
 
-	timer_ids[NeighbourID-1][k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
+	timer_ids[index][k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
 	//logLine(trace, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[0], timer_ids[1], timer_ids[2], timer_ids[3], msg);
 }
 
@@ -551,8 +496,9 @@ void start_timer(seq_nr k, int NeighbourID) {
 void stop_timer(seq_nr k, int NeighbourID) {
 	int timer_id;
 	char *msg;
+	int index = NeighbourID-1;
 
-	timer_id = timer_ids[NeighbourID-1][k];
+	timer_id = timer_ids[index][k];
 	logLine(trace, "stop_timer for seq_nr %d med id=%d\n", k, timer_id);
 
     if (StopTimer(timer_id, (void *)&msg)) {
@@ -566,13 +512,14 @@ void stop_timer(seq_nr k, int NeighbourID) {
 
 void start_ack_timer(int NeighbourID)
 {
+	int index = NeighbourID-1;
 	printf("setting ACK-timer for %d\n", NeighbourID+1 );
-	if( ack_timer_id[NeighbourID] == -1 ) {
+	if( ack_timer_id[index] == -1 ) {
 		logLine(trace, "Starting ack-timer\n");
 		char *msg;
 		msg = (char *) malloc(100*sizeof(char));
 		strcpy(msg, "Ack-timer");
-		ack_timer_id[NeighbourID] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
+		ack_timer_id[index] = SetTimer( act_timer_timeout_millis, (void *)msg ); /*TODO*/
 		logLine(debug, "Ack-timer startet med id %d\n", ack_timer_id[0]);
 	}
 }
@@ -580,13 +527,14 @@ void start_ack_timer(int NeighbourID)
 void stop_ack_timer(int NeighbourID)
 {
 	char *msg;
+	int index = NeighbourID-1;
 
 	logLine(trace, "stop_ack_timer\n");
-    if (StopTimer(ack_timer_id[NeighbourID-1], (void *)&msg)) {
+    if (StopTimer(ack_timer_id[index], (void *)&msg)) {
 	    logLine(trace, "timer %d stoppet. msg: %s \n", ack_timer_id, msg);
         free(msg);
     }
-    ack_timer_id[NeighbourID] = -1; 
+    ack_timer_id[index] = -1; 
 }
 
 
@@ -604,14 +552,80 @@ int main(int argc, char *argv[])
 
     printf( "Starting network simulation\n" );
 
-
   /* processerne aktiveres */
   ACTIVATE(1, FakeNetworkLayer1);
   //ACTIVATE(2, FakeNetworkLayer2);
+  //ACTIVATE(3, FakeNetworkLayer1);
+  //ACTIVATE(4, FakeNetworkLayer1);
   ACTIVATE(1, selective_repeat);
   ACTIVATE(2, selective_repeat);
+  //ACTIVATE(3, selective_repeat);
+  //ACTIVATE(4, selective_repeat);
 
   /* simuleringen starter */
   Start();
   exit(0);
 }
+
+
+/*
+void FakeNetworkLayer2()
+{
+    long int events_we_handle;
+    event_t event;
+	int i,j;
+	FifoQueueEntry e;
+	char *buffer;
+	packet *pack;
+
+	
+    from_network_layer_queue = InitializeFQ();
+    5 = InitializeFQ();
+
+    events_we_handle = network_layer_allowed_to_send | data_for_network_layer;
+
+    j = 0;
+    while( true ) {
+    	// Wait until we are allowed to transmit
+    	//printf ("THIS IS LINE: %d.\n", __LINE__);
+    	printf("FakeNetworkLayer2 Waiting\n");
+    	Wait(&event, events_we_handle);
+
+    	switch(event.type) {
+    		case network_layer_allowed_to_send:
+    			printf("Station: %d Case: network_layer_allowed_to_send : FakeNetworkLayer2 \n", ThisStation);
+				Lock( network_layer_lock );
+    			if( network_layer_enabled[0] && !EmptyFQ( from_network_layer_queue )  ) {
+        			logLine(info, "Signal from network layer for message\n");
+        			network_layer_enabled[0] = false;
+        			ClearEvent( network_layer_ready ); // Don't want to signal too many events
+        			printf("Station: %d Signal: network_layer_ready\n", ThisStation);
+        			Signal(network_layer_ready, NULL);
+    			}
+				Unlock( network_layer_lock );
+    			break;
+    		case data_for_network_layer:
+    			printf("Station: %d Case: data_for_network_layer\n", ThisStation);
+				Lock( network_layer_lock );
+
+				e = DequeueFQ( for_network_layer_queue );
+    			logLine(succes, "Received message: %s\n" ,( (char *) e->val) );
+
+    			if( j < 2) {
+   					( (char *) e->val)[0] = 'd';
+   					EnqueueFQ( e, from_network_layer_queue );
+    			}
+
+				Unlock( network_layer_lock );
+
+				j++;
+    			logLine(info, "j: %d\n" ,j );
+    			break;
+    	}
+		if( EmptyFQ( from_network_layer_queue ) && j >= 2) {
+			logLine(succes, "Stopping - received 20 messages and sent 10\n"  );
+			printf("Stopping - received 20 messages and sent 10\n");
+		    sleep(5);
+		    Stop();
+		}
+    }*/
