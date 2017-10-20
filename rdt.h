@@ -20,9 +20,10 @@
 
 typedef enum {false, true} boolean;        /* boolean type */
 typedef unsigned int seq_nr;        /* sequence or ack numbers */
-typedef struct {char data[MAX_PKT-8];
-				int dest;
-				int src;} packet;        /* packet definition */
+typedef struct {char data[MAX_PKT];
+				int globalDestination;
+				int globalSender;
+				} packet;        /* packet definition */
 typedef enum {DATA, ACK, NAK} frame_kind;        /* frame_kind definition */
 
 
@@ -33,8 +34,8 @@ typedef struct {        /* frames are transported in this layer */
   packet info;          /* the network layer packet */
   int sendTime;
   int recvTime;
-  int fromStation;
-  int toStation;
+  int sender;
+  int destination;
 } frame;
 
 /* init_frame fills in default initial values in a frame. Protocols should
@@ -54,25 +55,25 @@ void to_network_layer(packet *p);
 int from_physical_layer(frame *r);
 
 /* Pass the frame to the physical layer for transmission. */
-void to_physical_layer(frame *s, int reciever);
+void to_physical_layer(frame *s, int send_to);
 
 /* Start the clock running and enable the timeout event. */
-void start_timer(seq_nr k, int NeighbourID);
+void start_timer(seq_nr k, int station);
 
 /* Stop the clock and disable the timeout event. */
-void stop_timer(seq_nr k, int NeighbourID);
+void stop_timer(seq_nr k, int station);
 
 /* Start an auxiliary timer and enable the ack_timeout event. */
-void start_ack_timer(int NeighbourID);
+void start_ack_timer(int station);
 
 /* Stop the auxiliary timer and disable the ack_timeout event. */
-void stop_ack_timer(int NeighbourID);
+void stop_ack_timer(int station);
 
 /* Allow the network layer to cause a network_layer_ready event. */
-void enable_network_layer(int NeighbourID);
+void enable_network_layer(int station);
 
 /* Forbid the network layer from causing a network_layer_ready event. */
-void disable_network_layer(int NeighbourID);
+void disable_network_layer(int station);
 
 /* In case of a timeout event, it is possible to find out the sequence
  * number of the frame that timed out (this is the sequence number parameter
