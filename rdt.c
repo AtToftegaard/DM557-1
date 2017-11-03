@@ -13,6 +13,7 @@
 #include "subnet.h"
 #include "fifoqueue.h"
 #include "debug.h"
+#include "EventDefinitions.c"
 
 /* En macro for at lette overførslen af korrekt navn til Activate */
 #define ACTIVATE(n, f) Activate(n, f, #f)
@@ -167,32 +168,6 @@ void FakeNetworkLayer()
  * With this, some acks will be piggybacked, some will be pure acks.
  *
  **/
-
-void log_event_received(long int event) {
-	char *event_name;
-	switch(event) {
-		case 1:
-			event_name = "frame_arrival";
-			break;
-		case 2:
-			event_name = "timeout";
-			break;
-		case 4:
-			event_name = "network_layer_allowed_to_send";
-			break;
-		case 8:
-			event_name = "network_layer_ready";
-			break;
-		case 16:
-			event_name = "data_for_network_layer";
-			break;
-		default:
-			event_name = "unknown";
-			break;
-	}
-	logLine(trace, "Event received %s\n", event_name);
-
-}
 
 void selective_repeat() {
     seq_nr ack_expected			[NR_STATIONS];             		/* lower edge of sender's window */
