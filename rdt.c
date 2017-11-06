@@ -13,7 +13,8 @@
 #include "subnet.h"
 #include "fifoqueue.h"
 #include "debug.h"
-#include "EventDefinitions.c"
+#include "eventDefinitions.h"
+#include "network_layer.h"
 
 /* En macro for at lette overførslen af korrekt navn til Activate */
 #define ACTIVATE(n, f) Activate(n, f, #f)
@@ -88,10 +89,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     stop_ack_timer(destination);        /* no need for separate ack frame */
 }
 
-/* Fake network/upper layers for station 1
- *
- * Send NR_MESSAGES packets and receive 10 before we stop
- * */
+//move to another file?
 void FakeNetworkLayer()
 {
 	int Receiver = ThisStation+1;
@@ -161,13 +159,6 @@ void FakeNetworkLayer()
 		}
     }
 }
-
-/* Fake network/upper layers for station 2
- *
- * Receive NR_MESSAGES messages, take the first 10, lowercase first letter and send to station 1.
- * With this, some acks will be piggybacked, some will be pure acks.
- *
- **/
 
 void selective_repeat() {
     seq_nr ack_expected			[NR_STATIONS];             		/* lower edge of sender's window */

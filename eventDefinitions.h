@@ -18,6 +18,7 @@ void log_event_received(long int event) {
 			event_name = "data_for_network_layer";
 			break;
 		case 32: 
+			event_name = "transport_layer_ready"
 			break;
 		case 64:
 			break;
