@@ -14,7 +14,6 @@
 #include "fifoqueue.h"
 #include "debug.h"
 #include "eventDefinitions.h"
-#include "network_layer.h"
 
 /* En macro for at lette overførslen af korrekt navn til Activate */
 #define ACTIVATE(n, f) Activate(n, f, #f)
@@ -27,16 +26,12 @@
 /* Globale variable */
 
 char *StationName;         /* Globalvariabel til at overføre programnavn      */
-int ThisStation;           /* Globalvariabel der identificerer denne station. */
+//int ThisStation;           /* Globalvariabel der identificerer denne station. */
 log_type LogStyle;         /* Hvilken slags log skal systemet føre            */
 boolean network_layer_enabled[NR_STATIONS]; //What neighbours are layer enabled for
 
 LogBuf mylog;                /* logbufferen                                     */
 
-FifoQueue from_network_layer_queue;           		/* Queue for data from network layer */
-FifoQueue for_network_layer_queue;    /* Queue for data for the network layer */
-
-mlock_t *network_layer_lock;
 mlock_t *write_lock;
 
 packet ugly_buffer; // TODO Make this a queue
@@ -59,8 +54,8 @@ static boolean between(seq_nr a, seq_nr b, seq_nr c)
 /* Copies package content to buffer, ensuring it has a string end character. */
 void packet_to_string(packet* data, char* buffer)
 {
-	strncpy ( buffer, (char*) data->data, MAX_PKT );
-	buffer[MAX_PKT] = '\0';
+	strncpy ( buffer, (char*) data->data, SIZE_OF_SEGMENT );
+	buffer[SIZE_OF_SEGMENT] = '\0';
 
 }
 
@@ -68,6 +63,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
 {
 	// destination is NOT index
     /* Construct and send a data, ack, or nak frame. */
+    printf("%s\n","send_frame called" );
     frame s;        /* scratch variable */
 
     s.kind = fk;        /* kind == data, ack, or nak */
@@ -101,13 +97,12 @@ void FakeNetworkLayer()
 	FifoQueueEntry e;
 	int reciever_idx = Receiver-1;
 
-    from_network_layer_queue = InitializeFQ();
-    for_network_layer_queue = InitializeFQ();
+    
 
     // Setup some messages
     for( i = 0; i < NR_MESSAGES; i++ ) {
     	p = (packet *) malloc( sizeof(packet) );
-		buffer = malloc(sizeof(char *) * (MAX_PKT - 8));
+		buffer = malloc(sizeof(char *) * (SIZE_OF_SEGMENT - 8));
 		p->globalDestination = Receiver;//i % numberOfStations;
 		p->globalSender = ThisStation; 
 
@@ -133,7 +128,7 @@ void FakeNetworkLayer()
         			// Signal element is ready
         			logLine(info, "Sending signal for message #%d\n", i);
         			network_layer_enabled[reciever_idx] = false;
-        			Signal(network_layer_ready, NULL);
+        			Signal(network_layer_ready, (int*) 1);
         			i++;
     			}
 				Unlock( network_layer_lock );
@@ -182,6 +177,9 @@ void selective_repeat() {
     Init_lock(write_lock);
     Init_lock( network_layer_lock );
 
+    from_network_layer_queue = InitializeFQ();
+    for_network_layer_queue = InitializeFQ();
+    
     for (i=0; i<NR_STATIONS; i++){
     	enable_network_layer(i+1);  /* initialize */
    		ack_expected[i] = 0;        /* next ack expected on the inbound stream */
@@ -229,11 +227,14 @@ void selective_repeat() {
         switch(event.type) {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
             	logLine(trace, "Network layer delivers frame - lets send it\n");
+            	printf("%s\n","network_layer_ready" );
             	from_network_layer(&p); /* fetch new packet */
-            	destination = p.globalDestination;
+            	destination = atoi((char*) event.msg);
+            	printf("%s %d %d\n","Destination set for ", atoi((char*) event.msg),__LINE__ );
             	s_idx = destination-1;
-
+            	network_layer_enabled[s_idx] = false;
 	            nbuffered[s_idx] = nbuffered[s_idx] + 1;        /* expand the window */
+	            printf("%s %d\n","memcpy", __LINE__ );
 	            memcpy(&out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS], &p, sizeof(packet));
 	            send_frame(DATA, next_frame_to_send[s_idx], frame_expected[s_idx], out_buf[s_idx], destination);        /* transmit the frame */
 	            inc(next_frame_to_send[s_idx]);        /* advance upper window edge */
@@ -243,7 +244,7 @@ void selective_repeat() {
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				source = r.sender;
 				s_idx = source-1;
-
+				printf("%s\n", "frame_arrival");
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected[s_idx]) && no_nak[s_idx]) {
@@ -282,6 +283,7 @@ void selective_repeat() {
 	        case timeout: /* Ack timeout or regular timeout*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
+	        	printf("%s\n", "timeout");
 	        	logLine(succes, "Timeout with id: %d - acktimer_id is acktimer_id[%d][%d][%d][%d] %d\n", timer_id, ack_timer_id[0],ack_timer_id[1],ack_timer_id[2],ack_timer_id[3]);
 	        	logLine(succes, "Message from timer: '%s'\n", (char *) event.msg );
 
@@ -347,18 +349,24 @@ void disable_network_layer(int station){
 
 void from_network_layer(packet *p) {
     FifoQueueEntry e;
-
+    printf("%s %d %s\n","Fetching from network_layer", __LINE__, __FUNCTION__ );
 	Lock( network_layer_lock );
+	printf("%d\n", __LINE__ );
 	e = DequeueFQ( from_network_layer_queue );
-    Unlock( network_layer_lock );
-
+	Unlock( network_layer_lock );
+	printf("%d\n", __LINE__ );
 	if(!e) {
-		logLine(error, "ERROR: We did not receive anything from the queue, like we should have\n");
+		logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
 	} else {
-		memcpy(p, (char *)ValueOfFQE( e ), sizeof(packet));
+		printf("%d\n", __LINE__ );
+		memcpy(p, (packet *)ValueOfFQE( e ), sizeof(packet));
+		printf("%d\n", __LINE__ );
 	    free( (void *)ValueOfFQE( e ) );
+	    printf("%d\n", __LINE__ );
 		DeleteFQE( e );
 	}
+	
+	printf("%s\n","Fetched from network_layer" );
 }
 
 
@@ -368,7 +376,7 @@ void to_network_layer(packet *p) {
     Lock( network_layer_lock );
 
     /*char * buffer;
-    buffer = (char *) malloc ( sizeof(char) * (1+MAX_PKT));
+    buffer = (char *) malloc ( sizeof(char) * (1+SIZE_OF_SEGMENT));
     packet_to_string(p, buffer);*/
     pack = malloc(sizeof(packet));
     memcpy(pack, p, sizeof(packet));
@@ -382,7 +390,7 @@ void to_network_layer(packet *p) {
 
 
 void print_frame(frame* s, char *direction) {
-	char temp[MAX_PKT+1];
+	char temp[SIZE_OF_SEGMENT+1];
 
 	switch( s->kind ) {
 		case ACK:
@@ -437,7 +445,6 @@ void start_timer(seq_nr k, int station) {
 	logLine(succes, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[index][0], timer_ids[index][1], timer_ids[index][2], timer_ids[index][3], msg);
 
 }
-
 
 void stop_timer(seq_nr k, int station) {
 	
@@ -501,14 +508,17 @@ int main(int argc, char *argv[])
     printf( "Starting network simulation\n" );
 
 
-  /* processerne aktiveres */
-  ACTIVATE(1, FakeNetworkLayer);
-  ACTIVATE(2, FakeNetworkLayer);
-  ACTIVATE(3, FakeNetworkLayer);
+  /* processerne aktiveres. Selective Repeat først. */
+  ACTIVATE(1, fakeTransportLayer);
   ACTIVATE(1, selective_repeat);
   ACTIVATE(2, selective_repeat);
   ACTIVATE(3, selective_repeat);
   ACTIVATE(4, selective_repeat);
+  ACTIVATE(1, network_layer_main_loop);
+  ACTIVATE(2, network_layer_main_loop);
+  ACTIVATE(3, network_layer_main_loop);
+  ACTIVATE(4, network_layer_main_loop);
+  
 
   /* simuleringen starter */
   Start();

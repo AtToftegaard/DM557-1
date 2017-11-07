@@ -17,7 +17,7 @@ UNAME = $(shell uname)
 SRC = Activate.c ClearEvent.c FromSubnet.c Signal.c Start.c Stop.c ToSubnet.c Wait.c \
 	control.c delay_frame.c errortimer.c fifoqueue.c flow.c priqueue.c re_delay_frame.c \
 	receiver.c shell.c signalhandler.c subnet.c subnetsupport.c timer.c transfer_frame.c \
-	transmit_error.c
+	transmit_error.c network_layer.c eventDefinitions.c
 
 HEADERS = fifoqueue.h priqueue.h subnet.h subnetsupport.h
 

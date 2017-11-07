@@ -5,12 +5,14 @@
 /* For now only DATAGRAM is used, but for dynamic routing, ROUTERINFO is defined */
 typedef enum {DATAGRAM, ROUTERINFO} datagram_kind;        /* datagram_kind definition */
 
+#define SIZE_OF_SEGMENT 16
+
 typedef struct {                        /* datagrams are transported in this layer */
   char data[SIZE_OF_SEGMENT];   /* Data from the transport layer segment  */
   datagram_kind kind;                   /* what kind of a datagram is it? */
-  int from;                                                /* From station address */
-  int to;                                                /* To station address */
-} datagram;
+  int globalSender;                                                /* From station address */
+  int globalDestination;                                                /* To station address */
+} packet;
 
 
 /* Make sure all locks and queues are initialized properly */
@@ -28,4 +30,7 @@ void network_layer_main_loop();
  * to the neighbour  */
 void signal_link_layer_if_allowed( int address);
 
+void fakeTransportLayer();
+
+void* give_me_message(int address);
 

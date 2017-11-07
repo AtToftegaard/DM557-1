@@ -4,28 +4,22 @@
  *  Created on: Aug 18, 2017
  *      Author: jacob
  */
-
+#include "subnetsupport.h"
+#include "network_layer.h"
 #ifndef RDT_H_
 #define RDT_H_
-
-/* Events */
-#define network_layer_allowed_to_send  0x00000004
-#define network_layer_ready            0x00000008
-#define data_for_network_layer         0x00000010
 
 #define frame_timer_timeout_millis  250
 #define act_timer_timeout_millis     50
 
-#define MAX_PKT 16        /* determines packet size in bytes */
+FifoQueue from_network_layer_queue;               /* Queue for data from network layer */
+FifoQueue for_network_layer_queue;    /* Queue for data for the network layer */
 
 typedef enum {false, true} boolean;        /* boolean type */
 typedef unsigned int seq_nr;        /* sequence or ack numbers */
-typedef struct {char data[MAX_PKT];
-				int globalDestination;
-				int globalSender;
-				} packet;        /* packet definition */
 typedef enum {DATA, ACK, NAK} frame_kind;        /* frame_kind definition */
-
+int ThisStation;
+mlock_t *network_layer_lock;
 
 typedef struct {        /* frames are transported in this layer */
   frame_kind kind;        /* what kind of a frame is it? */
