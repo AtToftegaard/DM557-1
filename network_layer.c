@@ -36,12 +36,10 @@ void fakeTransportLayer(){
     for( i = 0; i < 1; i++ ) {
       p = (packet *) malloc( sizeof(packet) );
       buffer = malloc(sizeof(char *) * (SIZE_OF_SEGMENT));
-      p->globalDestination = Receiver;//
-      p->globalSender = ThisStation; 
 
       sprintf( buffer, "D: %d", i );
       strcpy(p->data, buffer);
-      EnqueueFQ( NewFQE( (void *) p ), from_transport_layer_queue );
+      EnqueueFQ( NewFQE( (packet *) p ), from_transport_layer_queue );
       Signal(transport_layer_ready, give_me_message(3) );
     }
     if (i == 1) {
@@ -81,21 +79,20 @@ p = (packet *) malloc(sizeof(packet));
    	Wait(&event, events_we_handle);
    	switch(event.type) {
    		case network_layer_allowed_to_send:
+            printf("%s\n","CASE: network_layer_allowed_to_send" );
             // Layer below says it is ok to send
             // Lets send if there is something to send to that neighbour
-            Lock( network_layer_lock );
             if ((EmptyFQ(from_network_layer_queue)) == 0){ // 1 = tom, 0 = ikke tom
                // Signal element is ready
                Signal(network_layer_ready, NULL);
             }
-            Unlock( network_layer_lock );
 
    			break;
    		case data_for_network_layer:
 			// Layer below has provided data for us - lets process
 			// Either it should go up or be shipped on
          // Retrieve from link_layer
-            printf("%s %d\n", "data_for_network_layer", __LINE__);
+            printf("%s %d\n", "CASE: data_for_network_layer", __LINE__);
             Lock(network_layer_lock);
             e = DequeueFQ(for_network_layer_queue);
             Unlock(network_layer_lock);
@@ -106,14 +103,17 @@ p = (packet *) malloc(sizeof(packet));
                memcpy(p, (packet *)ValueOfFQE( e ), sizeof(packet));
                free( (void *)ValueOfFQE( e ) );
                DeleteFQE( e );
-             
+               
+               printf("Packet has destination: %d\n",p->globalDestination );
                if (p->globalDestination == ThisStation){ // This is final destination
+                  printf("%s\n", "We are destination" );
                   Lock(transport_layer_lock);
-                  EnqueueFQ( (void *) p, for_transport_layer_queue);
+                  EnqueueFQ( NewFQE( (packet *) p ), for_transport_layer_queue );
                   Unlock(transport_layer_lock);
                } else {                                  // forward it
+                  printf("%s\n","Package must be forwarded" );
                   Lock(network_layer_lock);
-                  EnqueueFQ( (void *) p, from_network_layer_queue);
+                  EnqueueFQ( NewFQE( (packet *) p ), from_network_layer_queue );
                   Signal(network_layer_ready, give_me_message(forward(0)));
                   Unlock(network_layer_lock);
                }
@@ -121,25 +121,25 @@ p = (packet *) malloc(sizeof(packet));
    			break;
    		case transport_layer_ready:
    		    // Data arriving from above - do something with it
-            printf("%s\n", "BEGIN transport_layer_ready");
+            printf("%s\n","CASE: transport_layer_ready" );
             Lock(transport_layer_lock);
             e = DequeueFQ(from_transport_layer_queue);
             Unlock(transport_layer_lock);
             if(!e) {
                logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
             } else {
-               memcpy(p, (char *)ValueOfFQE( e ), sizeof(packet));
+               memcpy(p, (packet *)ValueOfFQE( e ), sizeof(packet));
                free( (void *)ValueOfFQE( e ) );
                DeleteFQE( e );
             }                                 
             p->globalDestination = (int) event.msg; //nothing more than int in message, ever.
             p->globalSender = ThisStation;
             p->kind = DATAGRAM;
+            printf("Sending packet with globalDestination: %d and message: %d\n",p->globalDestination, forward(0) );
             Lock(network_layer_lock);
-            EnqueueFQ( NewFQE( (void *) p ), from_network_layer_queue );
-            Signal(network_layer_ready, give_me_message(forward(0)));
+            EnqueueFQ( NewFQE( (packet *) p ), from_network_layer_queue );
             Unlock(network_layer_lock);
-            printf("%s\n","END transport_layer_ready" );
+            Signal(network_layer_ready, give_me_message(forward(0)));
             break;
             }
    }

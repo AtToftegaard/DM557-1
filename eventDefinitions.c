@@ -21,10 +21,6 @@ void log_event_received(long int event) {
 		case 32: 
 			event_name = "transport_layer_ready";
 			break;
-		case 64:
-			break;
-		case 128:
-			break;
 		default:
 			event_name = "unknown";
 			break;

@@ -86,6 +86,7 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
 }
 
 //move to another file?
+/*
 void FakeNetworkLayer()
 {
 	int Receiver = ThisStation+1;
@@ -149,12 +150,12 @@ void FakeNetworkLayer()
 			sleep(5);
 		    logLine(info, "Station %d done. - (\'sleep(5)\')\n", ThisStation);
 		    logLine(succes, "Stopping - Sent %d messages to station %d\n", NR_MESSAGES, Receiver );
-		    /* A small break, so all stations can be ready */
+		    // A small break, so all stations can be ready 
 		    Stop();
 		}
     }
 }
-
+*/
 void selective_repeat() {
     seq_nr ack_expected			[NR_STATIONS];             		/* lower edge of sender's window */
     seq_nr next_frame_to_send	[NR_STATIONS];        			/* upper edge of sender's window + 1 */
@@ -162,7 +163,7 @@ void selective_repeat() {
     seq_nr too_far				[NR_STATIONS];                  /* upper edge of receiver's window + 1 */
     int i, j, destination, source, s_idx = -1;                       /* index into buffer pool */
     frame r;                          							/* scratch variable */
-    packet p;													// scratch
+    packet *p;													// scratch
     packet out_buf				[NR_STATIONS][NR_BUFS];         /* buffers for the outbound stream */
     packet in_buf				[NR_STATIONS][NR_BUFS];         /* buffers for the inbound stream */
     boolean arrived				[NR_STATIONS][NR_BUFS];         /* inbound bit map */
@@ -217,6 +218,7 @@ void selective_repeat() {
     printf("%#010x\n", 512);
     printf("%#010x\n", 1024);
 	*/
+	p = (packet*) malloc(sizeof(packet));
 
     while (true) {
         // Wait for any of these events
@@ -227,14 +229,13 @@ void selective_repeat() {
         switch(event.type) {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
             	logLine(trace, "Network layer delivers frame - lets send it\n");
-            	printf("%s\n","network_layer_ready" );
-            	from_network_layer(&p); /* fetch new packet */
+            	printf("%s\n","CASE: network_layer_ready" );
+            	from_network_layer(p); /* fetch new packet */
             	destination = atoi((char*) event.msg);
-            	printf("%s %d %d\n","Destination set for ", atoi((char*) event.msg),__LINE__ );
+            	printf("%s %d %d\n","Destination set for ", destination,__LINE__ );
             	s_idx = destination-1;
             	network_layer_enabled[s_idx] = false;
 	            nbuffered[s_idx] = nbuffered[s_idx] + 1;        /* expand the window */
-	            printf("%s %d\n","memcpy", __LINE__ );
 	            memcpy(&out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS], &p, sizeof(packet));
 	            send_frame(DATA, next_frame_to_send[s_idx], frame_expected[s_idx], out_buf[s_idx], destination);        /* transmit the frame */
 	            inc(next_frame_to_send[s_idx]);        /* advance upper window edge */
@@ -244,7 +245,7 @@ void selective_repeat() {
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				source = r.sender;
 				s_idx = source-1;
-				printf("%s\n", "frame_arrival");
+				printf("%s\n", "CASE: frame_arrival");
 				if (r.kind == DATA) {
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected[s_idx]) && no_nak[s_idx]) {
@@ -283,7 +284,7 @@ void selective_repeat() {
 	        case timeout: /* Ack timeout or regular timeout*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	printf("%s\n", "timeout");
+	        	printf("%s\n", "CASE: timeout");
 	        	logLine(succes, "Timeout with id: %d - acktimer_id is acktimer_id[%d][%d][%d][%d] %d\n", timer_id, ack_timer_id[0],ack_timer_id[1],ack_timer_id[2],ack_timer_id[3]);
 	        	logLine(succes, "Message from timer: '%s'\n", (char *) event.msg );
 
@@ -358,11 +359,8 @@ void from_network_layer(packet *p) {
 	if(!e) {
 		logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
 	} else {
-		printf("%d\n", __LINE__ );
 		memcpy(p, (packet *)ValueOfFQE( e ), sizeof(packet));
-		printf("%d\n", __LINE__ );
 	    free( (void *)ValueOfFQE( e ) );
-	    printf("%d\n", __LINE__ );
 		DeleteFQE( e );
 	}
 	
@@ -372,6 +370,7 @@ void from_network_layer(packet *p) {
 
 void to_network_layer(packet *p) {
 	
+	printf("Packet for network_layer dest: %d\n",p->globalDestination );
 	packet *pack;
     Lock( network_layer_lock );
 
@@ -381,7 +380,7 @@ void to_network_layer(packet *p) {
     pack = malloc(sizeof(packet));
     memcpy(pack, p, sizeof(packet));
 
-    EnqueueFQ( NewFQE( (void *) pack ), for_network_layer_queue );
+    EnqueueFQ( NewFQE( (packet *) pack ), for_network_layer_queue );
 
     Unlock( network_layer_lock );
 
