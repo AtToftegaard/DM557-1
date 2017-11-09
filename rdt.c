@@ -233,6 +233,7 @@ void selective_repeat() {
 	            nbuffered[s_idx] = nbuffered[s_idx] + 1;        /* expand the window */
 	          
             	from_network_layer(&out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS]);
+            	printf("Packet to be sent to: %d\n", out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS].globalDestination );
 	            send_frame(DATA, next_frame_to_send[s_idx], frame_expected[s_idx], out_buf[s_idx], destination);        /* transmit the frame */
 	            inc(next_frame_to_send[s_idx]);        /* advance upper window edge */
 	            break;
@@ -243,6 +244,7 @@ void selective_repeat() {
 				source = r.sender;
 				s_idx = source-1;
 				if (r.kind == DATA) {
+					printf("%d data-frame\n",__LINE__ );
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected[s_idx]) && no_nak[s_idx]) {
 						send_frame(NAK, 0, frame_expected[s_idx], out_buf[s_idx], source);
@@ -281,8 +283,8 @@ void selective_repeat() {
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
 	        	printf("%s\n", "CASE: timeout");
-	        	logLine(succes, "Timeout with id: %d - acktimer_id is acktimer_id[%d][%d][%d][%d] %d\n", timer_id, ack_timer_id[0],ack_timer_id[1],ack_timer_id[2],ack_timer_id[3]);
-	        	logLine(succes, "Message from timer: '%s'\n", (char *) event.msg );
+	        	//logLine(succes, "Timeout with id: %d - acktimer_id is acktimer_id[%d][%d][%d][%d] %d\n", timer_id, ack_timer_id[0],ack_timer_id[1],ack_timer_id[2],ack_timer_id[3]);
+	        	//logLine(succes, "Message from timer: '%s'\n", (char *) event.msg );
 
 	        	s_idx = -1;
 	    		for (i = 0; i < NR_STATIONS; i++) {
@@ -307,13 +309,13 @@ void selective_repeat() {
 	    			break;
 	    		}
 	        	if( timer_id == ack_timer_id[s_idx] ) { // Ack timer timer out
-	        		logLine(succes, "This was an ack-timer timeout. Sending explicit ack to %d.\n", s_idx+1);
+	        		//logLine(succes, "This was an ack-timer timeout. Sending explicit ack to %d.\n", s_idx+1);
 	        		free(event.msg);
 	        		ack_timer_id[s_idx] = -1; // It is no longer running
 	        		send_frame(ACK,0,frame_expected[s_idx], out_buf[s_idx], s_idx+1);        /* ack timer expired; send ack */
 	        	} else {
 	        		int timed_out_seq_nr = atoi( (char *) event.msg );
-	        		logLine(succes, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
+	        		//logLine(succes, "Timeout for frame - need to resend frame %d\n", timed_out_seq_nr);
 		        	send_frame(DATA, timed_out_seq_nr, frame_expected[s_idx], out_buf[s_idx], s_idx+1);
 	        	}
 	        	break;
@@ -348,14 +350,15 @@ void from_network_layer(packet *p) {
     FifoQueueEntry e;
 	Lock( network_layer_lock );
 	e = DequeueFQ( from_network_layer_queue );
-	Unlock( network_layer_lock );
 	if(!e) {
 		logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
 	} else {
 		memcpy(p, (packet*) ValueOfFQE( e ), sizeof(packet));
+		printf("from_network_layer took %s, queue is now %d \n", p->data, EmptyFQ(from_network_layer_queue));
 		free( (void *)ValueOfFQE( e ) );
 		DeleteFQE( e );
 	}
+	Unlock( network_layer_lock );
 }
 
 
@@ -391,7 +394,7 @@ void print_frame(frame* s, char *direction) {
 			break;
 		case DATA:
 			packet_to_string(&(s->info), temp);
-			logLine(succes, "%s: DATA frame [seq=%d, ack=%d, kind=%d, (%s)] \n", direction, s->seq, s->ack, s->kind, temp);
+			//logLine(succes, "%s: DATA frame [seq=%d, ack=%d, kind=%d, (%s)] \n", direction, s->seq, s->ack, s->kind, temp);
 			break;
 	}
 }
@@ -433,7 +436,7 @@ void start_timer(seq_nr k, int station) {
 	sprintf(msg, "%d", k); // Save seq_nr in message
 
 	timer_ids[index][k % NR_BUFS] = SetTimer( frame_timer_timeout_millis, (void *)msg );
-	logLine(succes, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[index][0], timer_ids[index][1], timer_ids[index][2], timer_ids[index][3], msg);
+	//logLine(succes, "start_timer for seq_nr=%d timer_ids=[%d, %d, %d, %d] %s\n", k, timer_ids[index][0], timer_ids[index][1], timer_ids[index][2], timer_ids[index][3], msg);
 
 }
 
@@ -447,10 +450,10 @@ void stop_timer(seq_nr k, int station) {
 	logLine(trace, "stop_timer for seq_nr %d med id=%d\n", k, timer_id);
 
     if (StopTimer(timer_id, (void *)&msg)) {
-    	logLine(succes, "timer %d stoppet. msg: %s \n", timer_id, msg);
+    	//logLine(succes, "timer %d stoppet. msg: %s \n", timer_id, msg);
         free(msg);
     } else {
-    	logLine(succes, "timer %d kunne ikke stoppes. Måske er den timet ud?timer_ids=[%d, %d, %d, %d] \n", timer_id, timer_ids[index][0], timer_ids[index][1], timer_ids[index][2], timer_ids[index][3]);
+    	//logLine(succes, "timer %d kunne ikke stoppes. Måske er den timet ud?timer_ids=[%d, %d, %d, %d] \n", timer_id, timer_ids[index][0], timer_ids[index][1], timer_ids[index][2], timer_ids[index][3]);
     }
 }
 
