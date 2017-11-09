@@ -94,29 +94,27 @@ initialize_locks_and_queues();
             printf("%s %d\n", "CASE: data_for_network_layer", __LINE__);
             Lock(network_layer_lock);
             e = DequeueFQ(for_network_layer_queue);
-            Unlock(network_layer_lock);
-            printf("e->val->data: %s\n",((char*)((packet*) e->val)->data));
             if(!e) {
+               printf("data_for_network_layer nothing in queue\n");
                logLine(error, "ERROR: We did not receive anything from the queue, like we should have\n");
             } else {
                memcpy(p, (char *)ValueOfFQE( e ), sizeof(packet));
                free( (void *)ValueOfFQE( e ) );
                DeleteFQE( e );
                
-               printf("Packet has destination: %d\n",p->globalDestination );
+               printf("Packet destination: %d\n",p->globalDestination );
                if (p->globalDestination == ThisStation){ // This is final destination
-                  printf("%s\n", "We are destination" );
+                  printf("%s\n", "Arrived at destination" );
                   Lock(transport_layer_lock);
                   EnqueueFQ( NewFQE( (void *) p ), for_transport_layer_queue );
                   Unlock(transport_layer_lock);
                } else {                                  // forward it
                   printf("%s\n","Package must be forwarded" );
-                  Lock(network_layer_lock);
                   EnqueueFQ( NewFQE( (void *) p ), from_network_layer_queue );
                   Signal(network_layer_ready, give_me_message(forward(0)));
-                  Unlock(network_layer_lock);
                }
             }
+            Unlock(network_layer_lock);
    			break;
    		case transport_layer_ready:
    		    // Data arriving from above - do something with it
@@ -135,7 +133,7 @@ initialize_locks_and_queues();
             p->globalDestination = atoi( (char *) event.msg ); //nothing more than int in message, ever.
             p->globalSender = ThisStation;
             p->kind = DATAGRAM;
-            printf("Sending packet with globalDestination: %d and localdestination: %d globalSender: %d\n",p->globalDestination, forward(0), p->globalSender );
+            printf("Pakcet enqueued with globalDestination: %d and localdestination: %d globalSender: %d\n",p->globalDestination, forward(0), p->globalSender );
             EnqueueFQ( NewFQE( (packet *) p ), from_network_layer_queue );
             /*
             FifoQueueEntry n = DequeueFQ(from_network_layer_queue);

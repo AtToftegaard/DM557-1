@@ -69,7 +69,6 @@ static void send_frame(frame_kind fk, seq_nr frame_nr, seq_nr frame_expected, pa
     if (fk == DATA)
     {
     	s.info = buffer[frame_nr % NR_BUFS];
-    	printf("send_frame about to send message: %s \n", s.info.data );
     }
     s.seq = frame_nr;        /* only meaningful for data frames */
     s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
@@ -227,18 +226,13 @@ void selective_repeat() {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
             	logLine(trace, "Network layer delivers frame - lets send it\n");
             	printf("%s\n","CASE: network_layer_ready" );
-            	//from_network_layer(p); /* fetch new packet */
 
             	destination = atoi((char*) event.msg);
             	s_idx = destination-1;
             	network_layer_enabled[s_idx] = false;
 	            nbuffered[s_idx] = nbuffered[s_idx] + 1;        /* expand the window */
-	            //printf("sending with globalDestination %d and globalSender %d message: %s, %d\n", p->globalDestination, p->globalSender, p->data, __LINE__ );
-	            //memcpy(&out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS], &p, sizeof(packet));
-	
+	          
             	from_network_layer(&out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS]);
-            	printf("%d Message: %s globalDestination %d\n", __LINE__,out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS].data, out_buf[s_idx][next_frame_to_send[s_idx]%NR_BUFS].globalDestination );
-
 	            send_frame(DATA, next_frame_to_send[s_idx], frame_expected[s_idx], out_buf[s_idx], destination);        /* transmit the frame */
 	            inc(next_frame_to_send[s_idx]);        /* advance upper window edge */
 	            break;
@@ -324,7 +318,7 @@ void selective_repeat() {
 	        	}
 	        	break;
 	     }
-
+	     sleep(2);
 	     if (nbuffered[s_idx] < NR_BUFS) {
 	         enable_network_layer(s_idx+1);
 	     } else {
@@ -359,8 +353,7 @@ void from_network_layer(packet *p) {
 		logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
 	} else {
 		memcpy(p, (packet*) ValueOfFQE( e ), sizeof(packet));
-		printf("from_network_layer checking message: %d %d %s\n",  p->globalDestination, p->globalSender, p->data);
-	    free( (void *)ValueOfFQE( e ) );
+		free( (void *)ValueOfFQE( e ) );
 		DeleteFQE( e );
 	}
 }
@@ -368,13 +361,13 @@ void from_network_layer(packet *p) {
 
 void to_network_layer(packet *p) {
 	
-	printf("Packet for network_layer dest: %d\n",p->globalDestination );
 	packet *pack;
     Lock( network_layer_lock );
 
     /*char * buffer;
     buffer = (char *) malloc ( sizeof(char) * (1+SIZE_OF_SEGMENT));
     packet_to_string(p, buffer);*/
+
     pack = malloc(sizeof(packet));
     memcpy(pack, p, sizeof(packet));
 
@@ -414,11 +407,9 @@ int from_physical_layer(frame *r) {
 	FromSubnet(&source, &dest, (char *) r, &length);
 
 	r->sender = source;
-	printf("Sender: %d, Destination: %d, globalDestination: %d, globalSender: %d\n",r->sender, r->destination, r->info.globalDestination, r->info.globalSender );
 	//--------------------------------------------------
 	if (r->kind == DATA){
-		printf("%s %d %d\n", r->info.data, r->info.globalDestination, r->info.globalSender );
-		printf("Received from station %d with message %s \n", r->sender, r->info.data);
+		//printf("%s %d %d\n", r->info.data, r->info.globalDestination, r->info.globalSender );
 	}
 	//--------------------------------------------------
 	print_frame(r, "received");
