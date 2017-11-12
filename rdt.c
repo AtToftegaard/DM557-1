@@ -28,7 +28,7 @@
 char *StationName;         /* Globalvariabel til at overføre programnavn      */
 //int ThisStation;           /* Globalvariabel der identificerer denne station. */
 log_type LogStyle;         /* Hvilken slags log skal systemet føre            */
-boolean network_layer_enabled[NR_STATIONS]; //What neighbours are layer enabled for
+
 
 LogBuf mylog;                /* logbufferen                                     */
 
@@ -457,7 +457,6 @@ void stop_timer(seq_nr k, int station) {
     }
 }
 
-
 void start_ack_timer(int station)
 {
 	int index = station-1;
@@ -471,7 +470,6 @@ void start_ack_timer(int station)
 	}
 }
 
-
 void stop_ack_timer(int station)
 {
 	int index = station-1;
@@ -484,8 +482,6 @@ void stop_ack_timer(int station)
     }
     ack_timer_id[index] = -1;
 }
-
-
 
 int main(int argc, char *argv[])
 {

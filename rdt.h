@@ -20,6 +20,7 @@ typedef unsigned int seq_nr;        /* sequence or ack numbers */
 typedef enum {DATA, ACK, NAK} frame_kind;        /* frame_kind definition */
 int ThisStation;
 mlock_t *network_layer_lock;
+boolean network_layer_enabled[4]; //What neighbours are layer enabled for
 
 typedef struct {        /* frames are transported in this layer */
   frame_kind kind;        /* what kind of a frame is it? */

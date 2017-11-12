@@ -28,8 +28,8 @@ void fakeTransportLayer(){
    char *buffer;
    int i;
    packet *p;
-   sleep(5);
-
+   sleep(5); //wait for things initializing
+   Lock(transport_layer_lock);
     printf("%s\n", "setting up messages");
     // Setup some messages
     for( i = 0; i < 2; i++ ) {
@@ -45,9 +45,9 @@ void fakeTransportLayer(){
     if (i == 2) {
       sleep(15);
       logLine(succes, "Stopping - Sent %d messages to station %d\n", i, Receiver );
-      /* A small break, so all stations can be ready */
       Stop();
     }
+   Unlock(transport_layer_lock);
 }
 
 void initialize_locks_and_queues(){
@@ -67,6 +67,7 @@ void network_layer_main_loop(){
 
 //int globalDestination;
 packet *p;
+packet *temp;
 FifoQueueEntry e;
 //The main loop of the network layer would likely look something along the lines of: (pseudo code)
 event_t event;
@@ -122,36 +123,34 @@ initialize_locks_and_queues();
    			break;
    		case transport_layer_ready:
    		    // Data arriving from above - do something with it
-            Lock(transport_layer_lock);
+            Lock(network_layer_lock);
+            temp = (packet*) malloc(sizeof(packet));
             printf("%s\n","CASE: transport_layer_ready" );
             e = DequeueFQ(from_transport_layer_queue);
             if(!e) {
                logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
             } else {
-               memcpy(p, (char *)ValueOfFQE( e ), sizeof(packet));
+               memcpy(temp, (char *)ValueOfFQE( e ), sizeof(packet));
                free( (void *)ValueOfFQE( e ) );
                DeleteFQE( e );
             }                                 
-            p->globalDestination = atoi( (char *) event.msg ); //nothing more than int in message, ever.
-            p->globalSender = ThisStation;
-            p->kind = DATAGRAM;
-            printf("Packet enqueued with globalDestination: %d and localdestination: %d globalSender: %d\n",p->globalDestination, forward(0), p->globalSender );
+            temp->globalDestination = atoi( (char *) event.msg ); //nothing more than int in message, ever.
+            temp->globalSender = ThisStation;
+            temp->kind = DATAGRAM;
+            printf("Packet enqueued with globalDestination: %d and localdestination: %d globalSender: %d\n",temp->globalDestination, forward(0), temp->globalSender );
+            EnqueueFQ( NewFQE( (packet *) temp ), from_network_layer_queue );
             printf("Queue is: %d\n", EmptyFQ(from_network_layer_queue));
-            EnqueueFQ( NewFQE( (packet *) p ), from_network_layer_queue );
-            /*
-            FifoQueueEntry n = DequeueFQ(from_network_layer_queue);
-            packet *k = (packet*) malloc(sizeof(packet));
-            memcpy(k, (packet*) ValueOfFQE(n), sizeof(packet));
-            printf("k->data: %s k->globalDestination %d k->globalSender %d\n", k->data, k->globalDestination, k->globalSender );
-            */
+
             printf("Transport_case signalling network_layer_ready\n");
-            Signal(network_layer_ready, give_me_message(forward(0)));
-            Unlock(transport_layer_lock);
+            signal_link_layer_if_allowed(temp->globalDestination);
+            Unlock(network_layer_lock);
             break;
          }
    }
 }
 void signal_link_layer_if_allowed(int address){
-
+   if (EmptyFQ(from_network_layer_queue) == 0 && network_layer_enabled[address-1] == true) {
+      Signal(network_layer_ready, give_me_message(address));
+   }
 }
 
