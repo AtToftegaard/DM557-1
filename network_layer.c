@@ -9,19 +9,15 @@
 #include "debug.h"
 #include "eventDefinitions.h"
 
-FifoQueue from_transport_layer_queue;
-FifoQueue for_transport_layer_queue;
-mlock_t *transport_layer_lock;
-
 long int events_we_handle;
 
 void* give_me_message(int i){    
       char *msg;
-      msg = (char *) malloc(5*sizeof(char));
+      msg = malloc(5*sizeof(char));
       sprintf(msg,"%d" , i);
       return (void*) msg;
 }
-
+/*
 void fakeTransportLayer(){
 
    int Receiver = 3;
@@ -49,11 +45,8 @@ void fakeTransportLayer(){
     }
    Unlock(transport_layer_lock);
 }
-
+*/
 void initialize_locks_and_queues(){
-   
-   transport_layer_lock = malloc(sizeof(mlock_t));
-   Init_lock(transport_layer_lock);
 
    from_transport_layer_queue = InitializeFQ();
    for_transport_layer_queue = InitializeFQ();
@@ -65,7 +58,6 @@ int forward(int toAddress){
 
 void network_layer_main_loop(){
 
-//int globalDestination;
 packet *p;
 packet *temp;
 FifoQueueEntry e;
@@ -112,7 +104,8 @@ initialize_locks_and_queues();
                printf("Packet destination: %d\n",p->globalDestination );
                if (p->globalDestination == ThisStation){ // This is final destination
                   printf("Arrived at destination with msg: %s\n", p->data);
-                  //EnqueueFQ( NewFQE( (void *) p ), for_transport_layer_queue );
+                  EnqueueFQ( NewFQE( (void *) p ), for_transport_layer_queue );
+                  Signal(data_for_transport_layer, NULL);
                } else {                                  // forward it
                   printf("%s\n","Package must be forwarded" );
                   EnqueueFQ( NewFQE( (void *) p ), from_network_layer_queue );
@@ -130,7 +123,7 @@ initialize_locks_and_queues();
             if(!e) {
                logLine(succes, "ERROR: We did not receive anything from the queue, like we should have\n");
             } else {
-               memcpy(temp, (char *)ValueOfFQE( e ), sizeof(packet));
+               memcpy(temp->data, (char *)ValueOfFQE( e ), TPDU_SIZE);
                free( (void *)ValueOfFQE( e ) );
                DeleteFQE( e );
             }                                 

@@ -1,6 +1,8 @@
 
-
+#include "fifoqueue.h"
 #include "eventDefinitions.h"
+#include "subnetsupport.h"
+#include "transport_layer.h"
 
 /* For now only DATAGRAM is used, but for dynamic routing, ROUTERINFO is defined */
 typedef enum {DATAGRAM, ROUTERINFO} datagram_kind;        /* datagram_kind definition */
@@ -8,12 +10,14 @@ typedef enum {DATAGRAM, ROUTERINFO} datagram_kind;        /* datagram_kind defin
 #define SIZE_OF_SEGMENT 16
 
 typedef struct {                        /* datagrams are transported in this layer */
-  char data[SIZE_OF_SEGMENT];   /* Data from the transport layer segment  */
+  char data[TPDU_SIZE];           /* Data from the transport layer segment  */
   datagram_kind kind;                   /* what kind of a datagram is it? */
-  int globalSender;                                                /* From station address */
-  int globalDestination;                                                /* To station address */
+  int globalSender;                     /* From station address */
+  int globalDestination;                /* To station address */
 } packet;
 
+FifoQueue from_transport_layer_queue;
+FifoQueue for_transport_layer_queue;
 
 /* Make sure all locks and queues are initialized properly */
 void initialize_locks_and_queues();

@@ -1,9 +1,5 @@
-/*
- * rdt.h
- *
- *  Created on: Aug 18, 2017
- *      Author: jacob
- */
+
+
 #include "subnetsupport.h"
 #include "network_layer.h"
 #ifndef RDT_H_

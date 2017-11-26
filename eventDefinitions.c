@@ -21,6 +21,15 @@ void log_event_received(long int event) {
 		case 32: 
 			event_name = "transport_layer_ready";
 			break;
+		case 64:
+			event_name = "data_for_transport_layer";
+			break;
+		case 128:
+			event_name = "data_from_application_layer";
+			break;
+		case 256:
+			event_name = "connection_req_answer";
+			break;
 		default:
 			event_name = "unknown";
 			break;
