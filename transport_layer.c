@@ -2,11 +2,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "transport_layer.h"
-#include "eventDefinitions.h"
+
 #include "subnetsupport.h"
 #include "subnet.h"
 #include "fifoqueue.h"
+#include "debug.h"
+#include "eventDefinitions.h"
+
+#include "transport_layer.h"
 
 // Global variables
 int currentFreePort;	//next free port on this station
@@ -17,7 +20,7 @@ event_t event;
 FifoQueueEntry e;		//scratch
 tpdu_t *t, *l;			//scratch
 
-int connectIndex;	//current index in connectionarray
+int connindex;	//current index in connectionarray
 connection_t connectionArray[4]; //array for connections
 
 /*
@@ -75,11 +78,11 @@ int connect(host_address remote_host, transport_address local_ta, transport_addr
 	EnqueueFQ(NewFQE(dataUnit), from_transport_layer_queue);
 	Signal(transport_layer_ready, give_me_message(remote_host));
 	if (listen(local_ta)){
-		connectionArray[connectIndex % 4].state 		= established;
-		connectionArray[connectIndex % 4].local_address = local_ta;
-		connectionArray[connectIndex % 4].remote_address= remote_ta;
-		connectionArray[connectIndex % 4].remote_host 	= remote_host;
-		connectIndex++;
+		connectionArray[connindex].state 		= established;
+		connectionArray[connindex].local_address = local_ta;
+		connectionArray[connindex].remote_address= remote_ta;
+		connectionArray[connindex].remote_host 	= remote_host;
+		connindex++;
 		printf("Connection established");
 		return connectionid++;
 	} else {
@@ -115,7 +118,8 @@ void transport_layer_loop(){
 
    	t = (tpdu_t*) malloc(sizeof(tpdu_t));		
    	connectionid = 0;
-   	connectIndex = 0;
+   	connindex = 0;
+   	int i;
 	events_we_handle = data_from_application_layer | data_for_transport_layer;
 
 	for(;;){	// Begin loop
@@ -124,14 +128,26 @@ void transport_layer_loop(){
 			case data_for_transport_layer:
 				Lock(transport_layer_lock);
 
-				e = FirstEntryFQ(for_transport_layer_queue);
+				l = ValueOfFQE(FirstEntryFQ(for_transport_layer_queue));
 
-				switch(( (tpdu_t *) ValueOfFQE(e))->type ){
-					case connection_req_reply:	//bytes field is used as accepted/refused indicator
-						logLine(trace, "port %d gets connection_req_reply", ((tpdu_t*) ValueOfFQE(e))->port );
-						Signal(connection_req_answer, give_me_message(((tpdu_t*) ValueOfFQE(e))->port ));
+				switch( l->type ){
+					case connection_req_reply:
+						logLine(trace, "port %d gets connection_req_reply", l->port );
+						Signal(connection_req_answer, give_me_message(l->port));
 						break;
 					case connection_req:
+						Lock(transport_layer_lock);
+						for (i=0; i<connindex;i++){
+							if (l->port == connectionArray[i].local_address ){ 
+								logLine(trace, "port number %d in use, return refusal", l->port);
+								l->port = -1;
+								DequeueFQ(for_transport_layer_queue);
+								EnqueueFQ(NewFQE(l), from_transport_layer_queue);
+								Signal(transport_layer_ready, give_me_message(atoi(event.msg)));
+								break;
+							}
+						}
+						Unlock(transport_layer_lock);
 						break;
 					case tcredit:
 						break;

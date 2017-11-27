@@ -1,9 +1,8 @@
-
-
-#include "subnetsupport.h"
-#include "network_layer.h"
 #ifndef RDT_H_
 #define RDT_H_
+
+#include "subnetsupport.h"
+#include "shared_foo.h"
 
 #define frame_timer_timeout_millis  250
 #define act_timer_timeout_millis     50

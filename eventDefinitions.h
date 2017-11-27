@@ -1,3 +1,5 @@
+#ifndef __EVENTDEFINITIONS__
+#define __EVENTDEFINITIONS__
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,3 +16,5 @@
 #define connection_req_answer	  	   0x00000100
 
 void log_event_received(long int event);
+
+#endif /* __EVENTDEFINITONS__ */

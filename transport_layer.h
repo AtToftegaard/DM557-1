@@ -1,32 +1,8 @@
-
 #ifndef __TRANSPORT_LAYER_H__
 #define __TRANSPORT_LAYER_H__
 #include "subnetsupport.h"
 #include "network_layer.h"
-
-#define TPDU_SIZE sizeof(tpdu_t)
-#define TPDU_PAYLOAD_SIZE 10
-
-typedef enum
-{
-    connection_req,
-    connection_req_reply,
-    tcredit,
-    clear_connection,
-    clear_conf,
-    data_tpdu
-} tpdu_type;
-
-typedef struct tpdu_s
-{
-    char            m;
-    char            q;
-    int             port;
-    int             returnport;
-    tpdu_type       type;
-    unsigned int    bytes;
-    char            payload[TPDU_PAYLOAD_SIZE];
-} tpdu_t;
+#include "shared_foo.h"
 
 typedef struct transport_packet_s
 {

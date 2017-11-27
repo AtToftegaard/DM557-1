@@ -2,12 +2,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "rdt.h"
+
 #include "subnetsupport.h"
 #include "subnet.h"
 #include "fifoqueue.h"
 #include "debug.h"
 #include "eventDefinitions.h"
+
+#include "network_layer.h"
 
 long int events_we_handle;
 
@@ -104,8 +106,8 @@ initialize_locks_and_queues();
                printf("Packet destination: %d\n",p->globalDestination );
                if (p->globalDestination == ThisStation){ // This is final destination
                   printf("Arrived at destination with msg: %s\n", p->data);
-                  EnqueueFQ( NewFQE( (void *) p ), for_transport_layer_queue );
-                  Signal(data_for_transport_layer, NULL);
+                  EnqueueFQ( NewFQE( (void *) p->data ), for_transport_layer_queue );
+                  Signal(data_for_transport_layer, give_me_message(p->globalSender));
                } else {                                  // forward it
                   printf("%s\n","Package must be forwarded" );
                   EnqueueFQ( NewFQE( (void *) p ), from_network_layer_queue );

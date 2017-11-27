@@ -1,19 +1,16 @@
-/*
- * Reliable data transfer between two stations
- *
- * Author: Jacob Aae Mikkelsen.
- */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "rdt.h"
+
 #include "subnetsupport.h"
 #include "subnet.h"
 #include "fifoqueue.h"
 #include "debug.h"
 #include "eventDefinitions.h"
+
+#include "rdt.h"
+#include "network_layer.h"
 
 /* En macro for at lette overførslen af korrekt navn til Activate */
 #define ACTIVATE(n, f) Activate(n, f, #f)
@@ -434,7 +431,6 @@ int main(int argc, char *argv[])
   ACTIVATE(4, network_layer_main_loop);
   sleep(1);
   
-
   /* simuleringen starter */
   Start();
   exit(0);
