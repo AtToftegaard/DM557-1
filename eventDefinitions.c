@@ -30,6 +30,9 @@ void log_event_received(long int event) {
 		case 256:
 			event_name = "connection_req_answer";
 			break;
+		case 512:
+			event_name = "test_event";
+			break;
 		default:
 			event_name = "unknown";
 			break;

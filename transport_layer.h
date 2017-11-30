@@ -31,6 +31,7 @@ typedef int host_address;
 
 typedef struct connection_s
 {
+    int                 connectionID;
     host_address        remote_host;
     transport_address   local_address;
     transport_address   remote_address;
@@ -68,19 +69,27 @@ int disconnect(int connection_id);
  * Set up a connection, so it is ready to receive data on, and wait for the main loop to signal all data received.
  * Could have a timeout for a connection - and cleanup afterwards.
  */
-int receive(char, unsigned char *, unsigned int *);
+int receive(int port, int nr_of_pieces);
 
 /*
  * On connection specified, send the bytes amount of data from buf.
  * Must break the message down into chunks of a manageble size, and queue them up.
  */
-int send(int connection_id, unsigned char *buf, unsigned int bytes);
- 
+int send(int connection_id, char *buf, unsigned int bytes);
+
 /*
  * Main loop of the transport layer, handling the relevant events, fx. data arriving from the network layer.
  * And take care of the different types of packages that can be received
  */
 void transport_layer_loop(void);
+
+/*
+ * Auxilliary functions 
+ */
+
+FifoQueue dividemessage( FifoQueue queue ,char * mess_buf, int nr_of_pieces, int piece_size );
+int get_connect_index( int ID );
+ 
 
 #endif /* __TRANSPORT_LAYER_H__ */
 

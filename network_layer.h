@@ -5,8 +5,6 @@
 #include "transport_layer.h"
 #include "rdt.h"
 
-#define SIZE_OF_SEGMENT 16
-
 FifoQueue from_transport_layer_queue;
 FifoQueue for_transport_layer_queue;
 

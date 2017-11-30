@@ -15,7 +15,7 @@
 int currentFreePort;	//next free port on this station
 int remoteFreePort;		//next port to ask for connection to
 int connectionid;		//currently usable connectionid
-long int events_we_handle;
+long int transport_loop_events;
 event_t event;
 FifoQueueEntry e;		//scratch
 tpdu_t *t, *l;			//scratch
@@ -23,17 +23,42 @@ tpdu_t *t, *l;			//scratch
 int connindex;	//current index in connectionarray
 connection_t connectionArray[4]; //array for connections
 
+int get_connect_index( int ID ){
+	int i, index = -1;
+	for (i = 0; i < 4; i++){
+		if (connectionArray[i].connectionID == ID){
+			index = i;
+			break;
+		}
+	}
+	return index;
+}
+
+FifoQueue dividemessage( FifoQueue queue ,char * mess, int nr_of_pieces, int piece_size){
+	int n;
+	char *msg;
+
+	for (n = 0; n < nr_of_pieces; n++){
+		msg = malloc(piece_size * sizeof(char));
+		memcpy(msg, mess, piece_size);
+		mess = mess + piece_size;
+		EnqueueFQ(NewFQE(msg), queue);
+	}
+	return queue;
+}
+
 /*
  * Listen for incomming calls on the specified transport_address.
  * Blocks while waiting
  */
 int listen(transport_address local_address){
 	int for_us = 1;
-	while (!for_us){
+	while (for_us == 1){	// multiple applications may wait for replies
 		Wait(&event, connection_req_answer);
-		logLine(trace, "listen waking up");
-		if ((int) event.msg == local_address){
-			logLine(trace, "data was for port %d", local_address);
+		printf("Listen waking up \n");
+		printf("msg -> %d local_address -> %d \n", atoi(event.msg), local_address );
+		if (atoi(event.msg) == local_address){
+			printf("data was for port %d \n", local_address);
 			Lock(transport_layer_lock);
 			e = DequeueFQ(for_transport_layer_queue);
             if(!e) {
@@ -45,7 +70,7 @@ int listen(transport_address local_address){
                for_us = 0;
             }
 
-            if (t->bytes){
+            if (t->bytes != -1){
 				logLine(trace, "connection accepted");
 				Unlock(transport_layer_lock);
 				return 0;
@@ -53,12 +78,9 @@ int listen(transport_address local_address){
 				logLine( error, "connection refused");
 				Unlock(transport_layer_lock);
 				return -1;
-			}    
-           
+			}           
 		}
 	}
-		
-	
     return -1;
 }
 
@@ -71,44 +93,92 @@ int listen(transport_address local_address){
  */
 int connect(host_address remote_host, transport_address local_ta, transport_address remote_ta){
 	
+	Lock(transport_layer_lock);
 	tpdu_t *dataUnit = malloc(sizeof(tpdu_t));
 	dataUnit->type = connection_req;
 	dataUnit->returnport = local_ta;
 	dataUnit->port = remote_ta;
 	EnqueueFQ(NewFQE(dataUnit), from_transport_layer_queue);
 	Signal(transport_layer_ready, give_me_message(remote_host));
-	if (listen(local_ta)){
+	Unlock(transport_layer_lock);
+	printf("transport_layer_ready signalled, now waiting\n");
+	if (listen(local_ta) == 0){
+		connectionid++;
 		connectionArray[connindex].state 		= established;
 		connectionArray[connindex].local_address = local_ta;
 		connectionArray[connindex].remote_address= remote_ta;
 		connectionArray[connindex].remote_host 	= remote_host;
+		connectionArray[connindex].connectionID = connectionid;
 		connindex++;
-		printf("Connection established");
-		return connectionid++;
+		printf("Connection established \n");
+		return connectionid;
 	} else {
 		printf("%s\n", "Connection unsuccesful" );
 		return -1;
 	}
-	
 }
 
 /*
  * Disconnect the connection with the supplied id.
  * returns appropriate errorcode or 0 if successfull
  */
-int disconnect(int connection_id);
+int disconnect(int connection_id){
+	Lock(transport_layer_lock);
+	tpdu_t *dataUnit = malloc(sizeof(tpdu_t));
+	int index = get_connect_index(connection_id);
+	dataUnit->port = connection_id;		// port used for storing ID since it's not in use for disconnecting
+	dataUnit->type = clear_connection;
+	EnqueueFQ(NewFQE(dataUnit), from_transport_layer_queue);
+	Signal(transport_layer_ready, give_me_message(connectionArray[index].remote_host));
+	Unlock(transport_layer_lock);
+	return 0;
+}
 
 /*
  * Set up a connection, so it is ready to receive data on, and wait for the main loop to signal all data received.
  * Could have a timeout for a connection - and cleanup afterwards.
  */
-int receive(char, unsigned char *, unsigned int *);
+int receive(int port, int nr_of_segments);
 
 /*
  * On connection specified, send the bytes amount of data from buf.
  * Must break the message down into chunks of a manageble size, and queue them up.
  */
-int send(int connection_id, unsigned char *buf, unsigned int bytes);
+int send(int connection_id, char *buf, unsigned int bytes){
+	FifoQueueEntry e;
+	tpdu_t *message_unit;
+	FifoQueue queue = InitializeFQ();
+	int extra = 0;
+	int index = get_connect_index(connection_id);
+
+	connectionArray[index].state = sending;
+	if (( bytes % SIZE_OF_SEGMENT) != 0){	//do we need extra piece (probably much better way to do this)
+		extra = 1;
+	}
+
+	message_unit = malloc(sizeof(tpdu_t));	//notification of incoming data
+	message_unit->type = data_notif;
+	message_unit->port = connectionArray[connindex].remote_host;
+	message_unit->segment = ((bytes / SIZE_OF_SEGMENT) + extra);
+	EnqueueFQ(NewFQE(message_unit), queue);
+
+	queue = dividemessage( queue ,buf, (bytes / SIZE_OF_SEGMENT) + extra  , SIZE_OF_SEGMENT);	// (src, nr_of_pieces, piece_size)
+	
+	while (EmptyFQ(queue) == 0){
+		e = DequeueFQ(queue);
+		message_unit = malloc(sizeof(tpdu_t));
+		message_unit->type = data_tpdu;
+		message_unit->port = connectionArray[connindex].remote_address;
+		message_unit->returnport = connectionArray[connindex].local_address;
+		message_unit->bytes = SIZE_OF_SEGMENT;
+		memcpy(message_unit->payload, ValueOfFQE(e), SIZE_OF_SEGMENT);
+		EnqueueFQ(NewFQE(message_unit), from_transport_layer_queue);
+		free( (void *)ValueOfFQE( e ) );
+		DeleteFQE(e);
+		Signal(transport_layer_ready, give_me_message(connectionArray[connindex].remote_host));
+	}
+	return 0;
+}
 
 
 void transport_layer_loop(){
@@ -119,43 +189,80 @@ void transport_layer_loop(){
    	t = (tpdu_t*) malloc(sizeof(tpdu_t));		
    	connectionid = 0;
    	connindex = 0;
-   	int i;
-	events_we_handle = data_from_application_layer | data_for_transport_layer;
+   	int i, allowed, index, nr_of_segments;
+   	FifoQueue data_queue;
+	transport_loop_events = data_from_application_layer | data_for_transport_layer | test_event;
 
-	for(;;){	// Begin loop
-		Wait(&event, events_we_handle);
+	while ( true ){	
+		Wait(&event, transport_loop_events);
+		printf("transport_layer_loop awakened type: %ld \n", event.type);
 		switch(event.type){
 			case data_for_transport_layer:
-				Lock(transport_layer_lock);
+				printf("%d CASE: data_for_transport_layer\n", __LINE__ );
 
+				Lock(transport_layer_lock);
 				l = ValueOfFQE(FirstEntryFQ(for_transport_layer_queue));
 
 				switch( l->type ){
 					case connection_req_reply:
-						logLine(trace, "port %d gets connection_req_reply", l->port );
+						printf("port %d gets connection_req_reply", l->port );
 						Signal(connection_req_answer, give_me_message(l->port));
 						break;
 					case connection_req:
-						Lock(transport_layer_lock);
-						for (i=0; i<connindex;i++){
+						allowed = 0;
+						for (i=0; i<connindex; i++){
 							if (l->port == connectionArray[i].local_address ){ 
-								logLine(trace, "port number %d in use, return refusal", l->port);
+								printf("port number %d in use, return refusal", l->port);
+								l->type = connection_req_reply;
 								l->port = -1;
-								DequeueFQ(for_transport_layer_queue);
-								EnqueueFQ(NewFQE(l), from_transport_layer_queue);
+								DeleteFQE((DequeueFQ(for_transport_layer_queue)));
+								EnqueueFQ(NewFQE(l), from_transport_layer_queue);	// send reply
 								Signal(transport_layer_ready, give_me_message(atoi(event.msg)));
+								allowed = 1;
 								break;
 							}
 						}
-						Unlock(transport_layer_lock);
+						if (allowed == 0){
+							
+							i = atoi(event.msg);							
+							connectionArray[connindex].connectionID = connectionid++;
+							connectionArray[connindex].state = established;
+							connectionArray[connindex].remote_host = i;
+							connectionArray[connindex].local_address = l->port;
+							connectionArray[connindex].remote_address = l->returnport; 
+							
+							DeleteFQE((DequeueFQ(for_transport_layer_queue)));
+							l->type = connection_req_reply;
+							EnqueueFQ(NewFQE(l), from_transport_layer_queue);	// send reply
+							Signal(transport_layer_ready, give_me_message(i));
+							printf("port number free, return acceptance\n");
+						}
 						break;
 					case tcredit:
 						break;
 					case clear_connection:
+						DeleteFQE((DequeueFQ(for_transport_layer_queue)));
+						index = get_connect_index(l->port);
+						connectionArray[index].state = disconn;
+						printf("%d Connection %d disconnected \n",__LINE__, l->port );
 						break;
 					case clear_conf:
 						break;
 					case data_tpdu:
+						Lock(transport_layer_lock);
+						e = DequeueFQ(for_transport_layer_queue);
+						memcpy(t, (char *)ValueOfFQE( e ), sizeof(tpdu_t));
+               			free( (void *)ValueOfFQE( e ) );
+               			DeleteFQE( e );
+						
+						Unlock(transport_layer_lock);
+						break;
+					case data_notif:
+						Lock(transport_layer_lock);
+						nr_of_segments = l->segment;
+						data_queue = InitializeFQ();
+						DeleteFQE((DequeueFQ(for_transport_layer_queue)));
+						Unlock(transport_layer_lock);
 						break;
 				}
 
@@ -164,8 +271,11 @@ void transport_layer_loop(){
 
 			case data_from_application_layer:
 				Lock(transport_layer_lock);
-
+				printf("%d CASE: data_from_application_layer\n", __LINE__ );
 				Unlock(transport_layer_lock);
+				break;
+			case test_event:
+				printf("Test_event\n");
 				break;
 		}
 	}
