@@ -69,7 +69,7 @@ int disconnect(int connection_id);
  * Set up a connection, so it is ready to receive data on, and wait for the main loop to signal all data received.
  * Could have a timeout for a connection - and cleanup afterwards.
  */
-int receive(int port, int nr_of_pieces);
+char* receive();
 
 /*
  * On connection specified, send the bytes amount of data from buf.

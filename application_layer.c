@@ -3,25 +3,22 @@
 
 void Station1_application_layer(void){
 	sleep(5);
-	/*
-	FifoQueueEntry e;
 	char *mess = malloc(sizeof(char) * 12);
 	sprintf(mess, "%s", "Hello World");
-	FifoQueue test = dividemessage(mess, 4	, 4);
-	e = DequeueFQ(test);
-	printf("%s\n", (char*) ValueOfFQE(e) );
-	e = DequeueFQ(test);
-	printf("%s\n", (char*) ValueOfFQE(e) );
-	e = DequeueFQ(test);
-	printf("%s\n", (char*) ValueOfFQE(e) );
-	*/
 	int ID;
 	ID = connect(3, 1, 1);
-	sleep(5);
+	sleep(20);
+	send(ID, mess, 12);
+	sleep(30);
 	disconnect(ID);
-	sleep(5);
+	sleep(40);
 	Stop();
 }
-void Station3_application_layer(void);
+void Station3_application_layer(void){
+	sleep(5);
+	char* message = receive();
+	printf("Final Message: %s !\n",message );
+	sleep(10);
+}
 
 

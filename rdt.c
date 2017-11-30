@@ -151,8 +151,7 @@ void selective_repeat() {
             case network_layer_ready:        /* accept, save, and transmit a new frame */
             	Lock( network_layer_lock );
             	logLine(trace, "Network layer delivers frame - lets send it\n");
-            	printf("%d %s\n", __LINE__,"CASE: network_layer_ready" );
-
+   
             	destination = atoi((char*) event.msg);
             	s_idx = destination-1;
             	network_layer_enabled[s_idx] = false;
@@ -165,13 +164,11 @@ void selective_repeat() {
 	            break;
 
 	        case frame_arrival:        /* a data or control frame has arrived */
-	            printf("%d %s\n", __LINE__,"CASE: frame_arrival");
 	            Lock(network_layer_lock);
 				from_physical_layer(&r);        /* fetch incoming frame from physical layer */
 				source = r.sender;
 				s_idx = source-1;
 				if (r.kind == DATA) {
-					printf("%d Data-Frame\n",__LINE__ );
 					/* An undamaged frame has arrived. */
 					if ((r.seq != frame_expected[s_idx]) && no_nak[s_idx]) {
 						send_frame(NAK, 0, frame_expected[s_idx], out_buf[s_idx], source);
@@ -210,10 +207,7 @@ void selective_repeat() {
 	        case timeout: /* Ack timeout or regular timeout*/
 	        	// Check if it is the ack_timer
 	        	timer_id = event.timer_id;
-	        	printf("%d %s\n", __LINE__,"CASE: timeout");
-	        	//logLine(succes, "Timeout with id: %d - acktimer_id is acktimer_id[%d][%d][%d][%d] %d\n", timer_id, ack_timer_id[0],ack_timer_id[1],ack_timer_id[2],ack_timer_id[3]);
-	        	//logLine(succes, "Message from timer: '%s'\n", (char *) event.msg );
-
+	        	
 	        	s_idx = -1;
 	    		for (i = 0; i < NR_STATIONS; i++) {
 	    			if (timer_id == ack_timer_id[i]) {
@@ -262,7 +256,7 @@ void enable_network_layer(int station) {
 	Lock( network_layer_lock );
 	logLine(trace, "enabling network layer\n");
 	network_layer_enabled[index] = true;
-	Signal( network_layer_allowed_to_send, NULL );
+	Signal( network_layer_allowed_to_send, give_me_message(station) );
 	Unlock( network_layer_lock );
 }
 
@@ -424,6 +418,7 @@ int main(int argc, char *argv[])
   ACTIVATE(1, transport_layer_loop);
   ACTIVATE(3, transport_layer_loop);
   ACTIVATE(1, Station1_application_layer);
+  ACTIVATE(3, Station3_application_layer);
   sleep(1);
   /* simuleringen starter */
   Start();

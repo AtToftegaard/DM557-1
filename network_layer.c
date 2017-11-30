@@ -19,35 +19,7 @@ void* give_me_message(int i){
       sprintf(msg,"%d" , i);
       return (void*) msg;
 }
-/*
-void fakeTransportLayer(){
 
-   int Receiver = 3;
-   char *buffer;
-   int i;
-   packet *p;
-   sleep(5); //wait for things initializing
-   Lock(transport_layer_lock);
-    printf("%s\n", "setting up messages");
-    // Setup some messages
-    for( i = 0; i < 2; i++ ) {
-      p = (packet *) malloc( sizeof(packet) );
-      buffer = (char *) malloc(sizeof(char *) * (SIZE_OF_SEGMENT));
-
-      sprintf( buffer, "D: %d", i );
-      strcpy(p->data, buffer);
-      EnqueueFQ( NewFQE( (void *) p ), from_transport_layer_queue );
-      Signal(transport_layer_ready, give_me_message(Receiver) );
-    }
-    
-    if (i == 2) {
-      sleep(15);
-      logLine(succes, "Stopping - Sent %d messages to station %d\n", i, Receiver );
-      Stop();
-    }
-   Unlock(transport_layer_lock);
-}
-*/
 void initialize_locks_and_queues(){
 
    from_transport_layer_queue = InitializeFQ();
@@ -72,20 +44,17 @@ initialize_locks_and_queues();
 
    while( true ){
    	// Wait until we are allowed to transmit
-      printf("network_layer_loop waiting\n");
    	Wait(&event, network_loop_events);
-      printf("network_layer_loop awakened type: %ld \n", event.type);
+      //printf("network_layer_loop awakened type: %ld \n", event.type);
    	switch(event.type) {
    		case network_layer_allowed_to_send:
             Lock(network_layer_lock);
-            printf("%s\n","CASE: network_layer_allowed_to_send" );
+            //printf("%s\n","CASE: network_layer_allowed_to_send" );
             // Layer below says it is ok to send
             // Lets send if there is something to send to that neighbour
-            if (EmptyFQ(from_network_layer_queue) == 0){ // 1 = tom, 0 = ikke tom
+            if ((EmptyFQ(from_network_layer_queue) == 0) && (network_layer_enabled[atoi((char*) event.msg)-1] == true)){ // 1 = tom, 0 = ikke tom
                // Signal element is ready
-               printf("%d Signalling queue not empty. Is now: %d \n", __LINE__, EmptyFQ(from_network_layer_queue) );
                signal_link_layer_if_allowed(forward(0));
-               //Signal(network_layer_ready, give_me_message(forward(0)));
             }
             Unlock(network_layer_lock);
    			break;
@@ -110,9 +79,17 @@ initialize_locks_and_queues();
                   printf("Arrived at destination \n");
                   EnqueueFQ( NewFQE( (void *) p->data ), for_transport_layer_queue );
                   Signal(data_for_transport_layer, give_me_message(p->globalSender));
-               } else if (p->globalDestination == (1 | 2 | 3 | 4)) {       // forward it
+               } else if (p->globalDestination ==  3) {       // forward it
                   printf("%s\n","Package must be forwarded" );
-                  EnqueueFQ( NewFQE( (void *) p ), from_network_layer_queue );
+                  temp = (packet*) malloc(sizeof(packet));
+                  memcpy(temp, p, sizeof(packet));
+                  EnqueueFQ( NewFQE( (void *) temp ), from_network_layer_queue );
+                  Signal(network_layer_ready, give_me_message(forward(0)));
+               } else if (p->globalDestination ==  1) {       // forward it
+                  printf("%s\n","Package must be forwarded" );
+                  temp = (packet*) malloc(sizeof(packet));
+                  memcpy(temp, p, sizeof(packet));
+                  EnqueueFQ( NewFQE( (void *) temp ), from_network_layer_queue );
                   Signal(network_layer_ready, give_me_message(forward(0)));
                }
             }
@@ -142,8 +119,7 @@ initialize_locks_and_queues();
             EnqueueFQ( NewFQE( (packet *) temp ), from_network_layer_queue );
             printf("Queue is: %d \n", EmptyFQ(from_network_layer_queue));
 
-            printf("Transport_case signalling network_layer_ready\n");
-            signal_link_layer_if_allowed(temp->globalDestination);
+            signal_link_layer_if_allowed(forward(0));
             Unlock(network_layer_lock);
             break;
          }

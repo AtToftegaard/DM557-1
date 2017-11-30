@@ -12,7 +12,7 @@
 #define data_for_network_layer         0x00000010
 #define transport_layer_ready 		   0x00000020
 #define data_for_transport_layer	   0x00000040
-#define data_from_application_layer	   0x00000080
+#define data_for_application_layer	   0x00000080
 #define connection_req_answer	  	   0x00000100
 #define test_event					   0x00000200
 

@@ -25,7 +25,7 @@ void log_event_received(long int event) {
 			event_name = "data_for_transport_layer";
 			break;
 		case 128:
-			event_name = "data_from_application_layer";
+			event_name = "data_for_application_layer";
 			break;
 		case 256:
 			event_name = "connection_req_answer";

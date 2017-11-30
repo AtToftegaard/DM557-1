@@ -19,6 +19,7 @@ long int transport_loop_events;
 event_t event;
 FifoQueueEntry e;		//scratch
 tpdu_t *t, *l;			//scratch
+FifoQueue data_queue;
 
 int connindex;	//current index in connectionarray
 connection_t connectionArray[4]; //array for connections
@@ -101,7 +102,6 @@ int connect(host_address remote_host, transport_address local_ta, transport_addr
 	EnqueueFQ(NewFQE(dataUnit), from_transport_layer_queue);
 	Signal(transport_layer_ready, give_me_message(remote_host));
 	Unlock(transport_layer_lock);
-	printf("transport_layer_ready signalled, now waiting\n");
 	if (listen(local_ta) == 0){
 		connectionid++;
 		connectionArray[connindex].state 		= established;
@@ -134,11 +134,16 @@ int disconnect(int connection_id){
 	return 0;
 }
 
-/*
- * Set up a connection, so it is ready to receive data on, and wait for the main loop to signal all data received.
- * Could have a timeout for a connection - and cleanup afterwards.
- */
-int receive(int port, int nr_of_segments);
+char* receive(){
+	tpdu_t *f;
+	Wait(&event, data_for_application_layer);
+	char* message = malloc(atoi(event.msg)*SIZE_OF_SEGMENT);
+	while (EmptyFQ(data_queue) == 0){
+		f = (tpdu_t*) ValueOfFQE(DequeueFQ(data_queue));
+		memcpy(message + (f->segment * SIZE_OF_SEGMENT) , f->payload , SIZE_OF_SEGMENT);
+	}	
+	return message;
+}
 
 /*
  * On connection specified, send the bytes amount of data from buf.
@@ -148,7 +153,7 @@ int send(int connection_id, char *buf, unsigned int bytes){
 	FifoQueueEntry e;
 	tpdu_t *message_unit;
 	FifoQueue queue = InitializeFQ();
-	int extra = 0;
+	int extra = 0, counter = 0;
 	int index = get_connect_index(connection_id);
 
 	connectionArray[index].state = sending;
@@ -160,7 +165,8 @@ int send(int connection_id, char *buf, unsigned int bytes){
 	message_unit->type = data_notif;
 	message_unit->port = connectionArray[connindex].remote_host;
 	message_unit->segment = ((bytes / SIZE_OF_SEGMENT) + extra);
-	EnqueueFQ(NewFQE(message_unit), queue);
+	EnqueueFQ(NewFQE(message_unit), from_transport_layer_queue);
+	Signal(transport_layer_ready, give_me_message(connectionArray[index].remote_host));
 
 	queue = dividemessage( queue ,buf, (bytes / SIZE_OF_SEGMENT) + extra  , SIZE_OF_SEGMENT);	// (src, nr_of_pieces, piece_size)
 	
@@ -171,11 +177,12 @@ int send(int connection_id, char *buf, unsigned int bytes){
 		message_unit->port = connectionArray[connindex].remote_address;
 		message_unit->returnport = connectionArray[connindex].local_address;
 		message_unit->bytes = SIZE_OF_SEGMENT;
+		message_unit->segment = counter++;
 		memcpy(message_unit->payload, ValueOfFQE(e), SIZE_OF_SEGMENT);
 		EnqueueFQ(NewFQE(message_unit), from_transport_layer_queue);
 		free( (void *)ValueOfFQE( e ) );
 		DeleteFQE(e);
-		Signal(transport_layer_ready, give_me_message(connectionArray[connindex].remote_host));
+		Signal(transport_layer_ready, give_me_message(connectionArray[index].remote_host));
 	}
 	return 0;
 }
@@ -186,16 +193,16 @@ void transport_layer_loop(){
 	transport_layer_lock = malloc(sizeof(mlock_t));
    	Init_lock(transport_layer_lock);
 
-   	t = (tpdu_t*) malloc(sizeof(tpdu_t));		
+   	t = (tpdu_t*) malloc(sizeof(tpdu_t));
+   	tpdu_t *temp;		
    	connectionid = 0;
    	connindex = 0;
-   	int i, allowed, index, nr_of_segments;
-   	FifoQueue data_queue;
-	transport_loop_events = data_from_application_layer | data_for_transport_layer | test_event;
+   	int i, allowed, index, nr_of_segments, nr_of_segments_counter = 0;
+	transport_loop_events =  data_for_transport_layer | test_event;
 
 	while ( true ){	
 		Wait(&event, transport_loop_events);
-		printf("transport_layer_loop awakened type: %ld \n", event.type);
+		//printf("transport_layer_loop awakened type: %ld \n", event.type);
 		switch(event.type){
 			case data_for_transport_layer:
 				printf("%d CASE: data_for_transport_layer\n", __LINE__ );
@@ -205,7 +212,7 @@ void transport_layer_loop(){
 
 				switch( l->type ){
 					case connection_req_reply:
-						printf("port %d gets connection_req_reply", l->port );
+						printf("port %d gets connection_req_reply \n", l->port );
 						Signal(connection_req_answer, give_me_message(l->port));
 						break;
 					case connection_req:
@@ -223,7 +230,6 @@ void transport_layer_loop(){
 							}
 						}
 						if (allowed == 0){
-							
 							i = atoi(event.msg);							
 							connectionArray[connindex].connectionID = connectionid++;
 							connectionArray[connindex].state = established;
@@ -249,29 +255,28 @@ void transport_layer_loop(){
 					case clear_conf:
 						break;
 					case data_tpdu:
-						Lock(transport_layer_lock);
+						printf("DATA_TPDU RECIEVED, nr %d!\n", nr_of_segments_counter);
 						e = DequeueFQ(for_transport_layer_queue);
-						memcpy(t, (char *)ValueOfFQE( e ), sizeof(tpdu_t));
+						temp = malloc(sizeof(tpdu_t));
+						memcpy(temp, (tpdu_t*) ValueOfFQE( e ), sizeof(tpdu_t));
                			free( (void *)ValueOfFQE( e ) );
                			DeleteFQE( e );
-						
-						Unlock(transport_layer_lock);
+						EnqueueFQ(NewFQE(temp), data_queue);
+						nr_of_segments_counter++;
+						printf("nr_of_segments_counter: %d  nr_of_segments: %d \n",nr_of_segments_counter,nr_of_segments );
+						if (nr_of_segments_counter == nr_of_segments){
+							printf("%d pieces recieved\n", nr_of_segments );
+							Signal(data_for_application_layer, give_me_message(nr_of_segments));
+						}
 						break;
 					case data_notif:
-						Lock(transport_layer_lock);
+						printf("DATA_NOTIF recieved, expecting %d pieces!\n", l->segment);
 						nr_of_segments = l->segment;
 						data_queue = InitializeFQ();
 						DeleteFQE((DequeueFQ(for_transport_layer_queue)));
-						Unlock(transport_layer_lock);
 						break;
 				}
 
-				Unlock(transport_layer_lock);
-				break;
-
-			case data_from_application_layer:
-				Lock(transport_layer_lock);
-				printf("%d CASE: data_from_application_layer\n", __LINE__ );
 				Unlock(transport_layer_lock);
 				break;
 			case test_event:
